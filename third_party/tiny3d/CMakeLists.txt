@@ -1,0 +1,21 @@
+cmake_minimum_required(VERSION 3.5)
+project(tiny3d)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+include_directories(include)
+file(GLOB SRC CONFIGURE_DEPENDS src/*.c include/*.h)
+add_library(${PROJECT_NAME} ${SRC})
+
+find_package(OpenGL REQUIRED)
+include_directories(${OPENGL_INCLUDE_DIRS})
+
+if (WIN32)
+	target_sources(${PROJECT_NAME} PRIVATE src/platform/windows.c)
+	target_link_libraries(${PROJECT_NAME} ${OPENGL_LIBRARIES} dwmapi uuid windowscodecs mfplat.lib mfreadwrite.lib mfuuid.lib)
+elseif(APPLE)
+	target_sources(${PROJECT_NAME} PRIVATE src/platform/mac.m)
+	target_link_libraries(${PROJECT_NAME} ${OPENGL_LIBRARIES} m "-framework Cocoa -framework CoreVideo -framework AudioToolbox")
+elseif(UNIX)
+	target_sources(${PROJECT_NAME} PRIVATE src/platform/unix.c)
+	target_link_libraries(${PROJECT_NAME} ${OPENGL_LIBRARIES} m X11 pulse pulse-simple)
+endif()

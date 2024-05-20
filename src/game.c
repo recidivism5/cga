@@ -388,9 +388,9 @@ void cast_ray_into_blocks(vec3 origin, vec3 ray, block_raycast_result_t *result)
 		}
 		result->block_pos[index] += ray[index] < 0 ? -1 : 1;
 		result->t += da[index];
-		da[0] -= d;
-		da[1] -= d;
-		da[2] -= d;
+		for (int i = 0; i < 3; i++){
+			da[i] -= d;
+		}
 		da[index] = fabsf(1.0f / ray[index]);
 	}
 	result->block = 0;
@@ -523,9 +523,9 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	get_entity_interpolated_position(&player,cam_pos);
 	cam_pos[1] += 1.62f-0.9f;
 	block_raycast_result_t brr;
-	vec3 ray = {0,0,-1};
-	vec3_rotate_deg(ray,(vec3){1,0,0},player.head_rotation[0],ray);
-	vec3_rotate_deg(ray,(vec3){0,1,0},player.head_rotation[1],ray);
+	vec3 ray = {0,0,-5};
+	vec3_rotate_deg(ray,(vec3){1,0,0},-player.head_rotation[0],ray);
+	vec3_rotate_deg(ray,(vec3){0,1,0},-player.head_rotation[1],ray);
 	cast_ray_into_blocks(cam_pos,ray,&brr);
 
 	//DRAW:	
@@ -549,6 +549,7 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	if (brr.block){
 		glPushMatrix();
 		glTranslatef((float)brr.block_pos[0],(float)brr.block_pos[1],(float)brr.block_pos[2]);
+		glScaled(1.005,1.005,1.005);
 		glColor3d(0,0,0);
 		glBegin(GL_LINES);
 			glVertex3d(0,1,0); glVertex3d(0,0,0);

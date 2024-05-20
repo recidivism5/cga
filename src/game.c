@@ -372,9 +372,9 @@ void cast_ray_into_blocks(vec3 origin, vec3 ray, block_raycast_result_t *result)
 	while (result->t <= 1.0f){
 		result->block = get_block(result->block_pos[0],result->block_pos[1],result->block_pos[2]);
 		if (result->block && result->block->id){
-			result->face_normal[0] = 0;
-			result->face_normal[1] = 0;
-			result->face_normal[2] = 0;
+			for (int i = 0; i < 3; i++){
+				result->face_normal[i] = 0;
+			}
 			result->face_normal[index] = ray[index] < 0 ? 1 : -1;
 			return;
 		}
@@ -394,6 +394,20 @@ void cast_ray_into_blocks(vec3 origin, vec3 ray, block_raycast_result_t *result)
 		da[index] = fabsf(1.0f / ray[index]);
 	}
 	result->block = 0;
+}
+
+void get_player_head_pos(vec3 out){
+	get_entity_interpolated_position(&player,out);
+	out[1] += 1.62f-0.9f;
+}
+
+void get_player_target_block(block_raycast_result_t *result){
+	vec3 head;
+	get_player_head_pos(head);
+	vec3 ray = {0,0,-5};
+	vec3_rotate_deg(ray,(vec3){1,0,0},-player.head_rotation[0],ray);
+	vec3_rotate_deg(ray,(vec3){0,1,0},-player.head_rotation[1],ray);
+	cast_ray_into_blocks(head,ray,result);
 }
 
 float mouse_sensitivity = 0.1f;
@@ -424,6 +438,31 @@ void keydown(int key){
 		case 'S': keys.backward = true; break;
 		case 'D': keys.right = true; break;
 		case ' ': keys.jump = true; break;
+		case KEY_MOUSE_LEFT:{
+			block_raycast_result_t brr;
+			get_player_target_block(&brr);
+			if (brr.block){
+				brr.block->id = BLOCK_AIR;
+				mesh_world();
+			}
+			break;
+		}
+		case KEY_MOUSE_RIGHT:{
+			block_raycast_result_t brr;
+			get_player_target_block(&brr);
+			if (brr.block){
+				block_t *b = get_block(
+					brr.block_pos[0]+brr.face_normal[0],
+					brr.block_pos[1]+brr.face_normal[1],
+					brr.block_pos[2]+brr.face_normal[2]
+				);
+				if (b && !b->id){
+					b->id = BLOCK_BRICK;
+				}
+				mesh_world();
+			}
+			break;
+		}
 	}
 }
 
@@ -520,13 +559,9 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	interpolant = accumulated_time / SEC_PER_TICK;
 
 	vec3 cam_pos;
-	get_entity_interpolated_position(&player,cam_pos);
-	cam_pos[1] += 1.62f-0.9f;
+	get_player_head_pos(cam_pos);
 	block_raycast_result_t brr;
-	vec3 ray = {0,0,-5};
-	vec3_rotate_deg(ray,(vec3){1,0,0},-player.head_rotation[0],ray);
-	vec3_rotate_deg(ray,(vec3){0,1,0},-player.head_rotation[1],ray);
-	cast_ray_into_blocks(cam_pos,ray,&brr);
+	get_player_target_block(&brr);
 
 	//DRAW:	
 	glViewport(0,0,width,height);
@@ -550,6 +585,7 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 		glPushMatrix();
 		glTranslatef((float)brr.block_pos[0],(float)brr.block_pos[1],(float)brr.block_pos[2]);
 		glScaled(1.005,1.005,1.005);
+		glTranslated(-0.0025,-0.0025,-0.0025);
 		glColor3d(0,0,0);
 		glBegin(GL_LINES);
 			glVertex3d(0,1,0); glVertex3d(0,0,0);

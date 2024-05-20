@@ -73,12 +73,22 @@ block_t world[WORLD_WIDTH*WORLD_WIDTH*WORLD_HEIGHT];
 
 vertex_list_t world_opaque_mesh, world_transparent_mesh;
 
+block_t *get_block(int x, int y, int z){
+	if (x >= 0 && x < WORLD_WIDTH &&
+		y >= 0 && y < WORLD_HEIGHT &&
+		z >= 0 && z < WORLD_WIDTH){
+		return world + y*WORLD_WIDTH*WORLD_WIDTH + z*WORLD_WIDTH + x;
+	} else {
+		return 0;
+	}
+}
+
 void gen_world(){
 	for (int y = 0; y < WORLD_HEIGHT; y++){
 		for (int z = 0; z < WORLD_WIDTH; z++){
 			for (int x = 0; x < WORLD_WIDTH; x++){
 				block_t *b = world + y*WORLD_WIDTH*WORLD_WIDTH + z*WORLD_WIDTH + x;
-				b->id = y==0 ? BLOCK_BEDROCK : y==63 ? rand()%2? BLOCK_GRASS : BLOCK_AIR : BLOCK_DIRT;
+				b->id = y==0 ? BLOCK_BEDROCK : y<31 ? BLOCK_DIRT : y==31 ? rand()%2 ? BLOCK_GRASS : BLOCK_AIR : BLOCK_AIR;
 				b->light = 255;
 			}
 		}
@@ -114,7 +124,7 @@ void append_block_face(int x, int y, int z, int face_id, block_t *neighbor, bloc
 	vertex_t *v = vertex_list_make_room(type->transparent ? &world_transparent_mesh : &world_opaque_mesh, 6);
 	uint8_t light = neighbor ? 
 		(uint8_t) (255 * (ambient_light_coefficients[face_id] * light_coefficients[MAX(SKYLIGHT(neighbor->light),BLOCKLIGHT(neighbor->light))])) :
-		255;
+		(uint8_t) (255 * ambient_light_coefficients[face_id]);
 	for (int i = 0; i < 6; i++){
 		v[i].x = x + cube_vertices[(face_id * 6 + i)*3 + 0];
 		v[i].y = y + cube_vertices[(face_id * 6 + i)*3 + 1];
@@ -146,10 +156,8 @@ void append_block_face(int x, int y, int z, int face_id, block_t *neighbor, bloc
 }
 
 void test_neighbor(int x, int y, int z, int face_id, int xx, int yy, int zz, block_type_t *type){
-	if (xx > 0 && xx < (WORLD_WIDTH-1) &&
-		yy > 0 && yy < (WORLD_HEIGHT-1) &&
-		zz > 0 && zz < (WORLD_WIDTH-1)){
-		block_t *nb = world + (y-1)*WORLD_WIDTH*WORLD_WIDTH + z*WORLD_WIDTH + x;
+	block_t *nb = get_block(xx,yy,zz);
+	if (nb){
 		block_type_t *nbt = block_types+nb->id;
 		if (nbt->transparent){
 			append_block_face(x,y,z,face_id,nb,type);
@@ -234,16 +242,6 @@ void get_expanded_mmbb(mmbb_t *src, mmbb_t *dst, vec3 v){
 void get_mmbb_center(mmbb_t *m, vec2 c){
 	for (int i = 0; i < 3; i++){
 		c[i] = m->min[i] + 0.5f*(m->max[i]-m->min[i]);
-	}
-}
-
-block_t *get_block(int x, int y, int z){
-	if (x >= 0 && x < WORLD_WIDTH &&
-		y >= 0 && y < WORLD_HEIGHT &&
-		z >= 0 && z < WORLD_WIDTH){
-		return world + y*WORLD_WIDTH*WORLD_WIDTH + z*WORLD_WIDTH + x;
-	} else {
-		return 0;
 	}
 }
 
@@ -350,110 +348,53 @@ void update_entity(entity_t *e){
 	}
 }
 
-/*void move_aabb_against_chunks(AABB *a, double dt){
-	vec3 d;
-	glm_vec3_scale(a->velocity,dt,d);
-	vec3 d_initial;
-	glm_vec3_copy(d,d_initial);
-	MMBB m;
-	aabb_to_mmbb(a,&m);
-	MMBB exp_m = m;
-	expand_mmbb(&exp_m,d);
-	ivec3 block_min, block_max;
+typedef struct {
+	block_t *block;
+	ivec3 block_pos;
+	ivec3 face_normal;
+	float t;
+} block_raycast_result_t;
+
+void cast_ray_into_blocks(vec3 origin, vec3 ray, block_raycast_result_t *result){
+	result->block_pos[0] = (int)floorf(origin[0]);
+	result->block_pos[1] = (int)floorf(origin[1]);
+	result->block_pos[2] = (int)floorf(origin[2]);
+	vec3 da;
 	for (int i = 0; i < 3; i++){
-		block_min[i] = floorf(exp_m.min[i]);
-		block_max[i] = floorf(exp_m.max[i]);
+		if (ray[i] < 0){
+			da[i] = ((float)result->block_pos[i]-origin[i]) / ray[i];
+		} else {
+			da[i] = ((float)result->block_pos[i]+1.0f-origin[i]) / ray[i];	
+		}
 	}
-	MMBBList mbl = {0};
-	for (int y = block_min[1]; y <= block_max[1]; y++){
-		for (int z = block_min[2]; z <= block_max[2]; z++){
-			for (int x = block_min[0]; x <= block_max[0]; x++){
-				Block *b = get_block(chunks,(ivec3){x,y,z});
-				if (b && b->id){
-					MMBB *bm = MMBBListMakeRoom(&mbl,1);
-					bm->min[0] = x;
-					bm->min[1] = y;
-					bm->min[2] = z;
-					bm->max[0] = x+1;
-					bm->max[1] = y+1;
-					bm->max[2] = z+1;
-				}
+	result->t = 0;
+	int index = 0;
+	while (result->t <= 1.0f){
+		result->block = get_block(result->block_pos[0],result->block_pos[1],result->block_pos[2]);
+		if (result->block && result->block->id){
+			result->face_normal[0] = 0;
+			result->face_normal[1] = 0;
+			result->face_normal[2] = 0;
+			result->face_normal[index] = ray[index] < 0 ? 1 : -1;
+			return;
+		}
+		float d = HUGE_VALF;
+		index = 0;
+		for (int i = 0; i < 3; i++){
+			if (da[i] < d){
+				index = i;
+				d = da[i];
 			}
 		}
+		result->block_pos[index] += ray[index] < 0 ? -1 : 1;
+		result->t += da[index];
+		da[0] -= d;
+		da[1] -= d;
+		da[2] -= d;
+		da[index] = fabsf(1.0f / ray[index]);
 	}
-	for (MMBB *bm = mbl.elements; bm < mbl.elements+mbl.used; bm++){
-		if (m.min[0] < bm->max[0] && bm->min[0] < m.max[0] && 
-			m.min[2] < bm->max[2] && bm->min[2] < m.max[2]){
-			if (d[1] < 0 && bm->max[1] <= m.min[1]){
-				float nd = bm->max[1] - m.min[1];
-				if (d[1] < nd){
-					d[1] = nd + 0.001f;
-				}
-			} else if (d[1] > 0 && m.max[1] <= bm->min[1]){
-				float nd = bm->min[1] - m.max[1];
-				if (nd < d[1]){
-					d[1] = nd - 0.001f;
-				}
-			}
-		}
-	}
-	m.min[1] += d[1];
-	m.max[1] += d[1];
-	for (MMBB *bm = mbl.elements; bm < mbl.elements+mbl.used; bm++){
-		if (m.min[0] < bm->max[0] && bm->min[0] < m.max[0] &&
-			m.min[1] < bm->max[1] && bm->min[1] < m.max[1]){
-			if (d[2] < 0 && bm->max[2] <= m.min[2]){
-				float nd = bm->max[2] - m.min[2];
-				if (d[2] < nd){
-					d[2] = nd + 0.001f;
-				}
-			} else if (d[2] > 0 && m.max[2] <= bm->min[2]){
-				float nd = bm->min[2] - m.max[2];
-				if (nd < d[2]){
-					d[2] = nd - 0.001f;
-				}
-			}
-		}
-	}
-	m.min[2] += d[2];
-	m.max[2] += d[2];
-	for (MMBB *bm = mbl.elements; bm < mbl.elements+mbl.used; bm++){
-		if (m.min[1] < bm->max[1] && bm->min[1] < m.max[1] &&
-			m.min[2] < bm->max[2] && bm->min[2] < m.max[2]){
-			if (d[0] < 0 && bm->max[0] <= m.min[0]){
-				float nd = bm->max[0] - m.min[0];
-				if (d[0] < nd){
-					d[0] = nd + 0.001f;
-				}
-			} else if (d[0] > 0 && m.max[0] <= bm->min[0]){
-				float nd = bm->min[0] - m.max[0];
-				if (nd < d[0]){
-					d[0] = nd - 0.001f;
-				}
-			}
-		}
-	}
-	m.min[0] += d[0];
-	m.max[0] += d[0];
-	if (mbl.used){
-		free(mbl.elements);
-	}
-	mmbb_get_center(&m,a->position);
-	if (d[0] != d_initial[0]){
-		a->velocity[0] = 0.0f;
-	}
-	if (d[1] != d_initial[1]){
-		a->velocity[1] = 0.0f;
-		if (d_initial[1] < 0.0f){
-			a->on_ground = true;
-		}
-	} else {
-		a->on_ground = false;
-	}
-	if (d[2] != d_initial[2]){
-		a->velocity[2] = 0.0f;
-	}
-}*/
+	result->block = 0;
+}
 
 float mouse_sensitivity = 0.1f;
 
@@ -534,7 +475,7 @@ void tick(){
 	} else {
 		move_dir[1] = 0;
 	}
-	vec3 move_vec = {move_dir[0],0,move_dir[1]};
+	vec3 move_vec = {(float)move_dir[0],0,(float)move_dir[1]};
 	if (move_dir[0] || move_dir[1]){
 		vec3_normalize(move_vec,move_vec);
 		vec3_scale(move_vec,0.25f,move_vec);
@@ -578,6 +519,15 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	}
 	interpolant = accumulated_time / SEC_PER_TICK;
 
+	vec3 cam_pos;
+	get_entity_interpolated_position(&player,cam_pos);
+	cam_pos[1] += 1.62f-0.9f;
+	block_raycast_result_t brr;
+	vec3 ray = {0,0,-1};
+	vec3_rotate_deg(ray,(vec3){1,0,0},player.head_rotation[0],ray);
+	vec3_rotate_deg(ray,(vec3){0,1,0},player.head_rotation[1],ray);
+	cast_ray_into_blocks(cam_pos,ray,&brr);
+
 	//DRAW:	
 	glViewport(0,0,width,height);
 
@@ -586,8 +536,7 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
-	glEnable(GL_TEXTURE_2D);
-	//glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
+
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	gluPerspective(90.0,(double)width/height,0.01,1000.0);
@@ -595,11 +544,30 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	glLoadIdentity();
 	glRotated(player.head_rotation[0],1,0,0);
 	glRotated(player.head_rotation[1],0,1,0);
-	vec3 cam_pos;
-	get_entity_interpolated_position(&player,cam_pos);
-	cam_pos[1] += 1.62f-0.9f;
-	vec3_negate(cam_pos,cam_pos);
-	glTranslatef(cam_pos[0],cam_pos[1],cam_pos[2]);
+	glTranslatef(-cam_pos[0],-cam_pos[1],-cam_pos[2]);
+
+	if (brr.block){
+		glPushMatrix();
+		glTranslatef((float)brr.block_pos[0],(float)brr.block_pos[1],(float)brr.block_pos[2]);
+		glColor3d(0,0,0);
+		glBegin(GL_LINES);
+			glVertex3d(0,1,0); glVertex3d(0,0,0);
+			glVertex3d(0,0,0); glVertex3d(0,0,1);
+			glVertex3d(0,0,1); glVertex3d(0,1,1);
+			glVertex3d(0,1,1); glVertex3d(0,1,0);
+			glVertex3d(1,1,0); glVertex3d(1,0,0);
+			glVertex3d(1,0,0); glVertex3d(1,0,1);
+			glVertex3d(1,0,1); glVertex3d(1,1,1);
+			glVertex3d(1,1,1); glVertex3d(1,1,0);
+			glVertex3d(0,1,0); glVertex3d(1,1,0);
+			glVertex3d(0,0,0); glVertex3d(1,0,0);
+			glVertex3d(0,0,1); glVertex3d(1,0,1);
+			glVertex3d(0,1,1); glVertex3d(1,1,1);
+		glEnd();
+		glPopMatrix();
+	}
+
+	glEnable(GL_TEXTURE_2D);
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 	glEnableClientState(GL_COLOR_ARRAY);
@@ -607,6 +575,9 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	glTexCoordPointer(2,GL_FLOAT,sizeof(vertex_t),&world_opaque_mesh.elements[0].u);
 	glColorPointer(4,GL_UNSIGNED_BYTE,sizeof(vertex_t),&world_opaque_mesh.elements[0].r);
 	glDrawArrays(GL_TRIANGLES,0,world_opaque_mesh.used);
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+	glDisableClientState(GL_COLOR_ARRAY);
 	glDisable(GL_TEXTURE_2D);
 }
 

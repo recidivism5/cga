@@ -84,7 +84,8 @@ uint32_t *load_image(bool flip_vertically, int *width, int *height, char *format
 		colorSpace,
 		kCGImageAlphaPremultipliedLast
 	);
-    NSGraphicsContext* gctx = [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:!flip_vertically];
+	CGContextSetInterpolationQuality(ctx,kCGInterpolationNone);
+    NSGraphicsContext* gctx = [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:flip_vertically];
     [NSGraphicsContext setCurrentContext:gctx];
     [img drawInRect:NSMakeRect(0, 0, *width, *height)];
     [NSGraphicsContext setCurrentContext:nil];
@@ -227,42 +228,7 @@ void lock_mouse(bool locked){
 	t1 = get_time();
 
 	int nFrames = fenster_audio_available(&audioState);
-	#if USE_GL
-		update((double)(t1-tstart) / 1000000000.0, (double)(t1-t0) / 1000000000.0, width, height, nFrames, audioState.buf+audioState.pos*2);
-	#else
-		update((double)(t1-tstart) / 1000000000.0, (double)(t1-t0) / 1000000000.0, nFrames, audioState.buf+audioState.pos*2);
-
-		glViewport(0,0,width,height);
-
-		glClearColor(0.0f,0.0f,1.0f,1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		static GLuint texture = 0;
-		if (!texture){
-			glGenTextures(1,&texture);
-			glBindTexture(GL_TEXTURE_2D,texture);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		}
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SCREEN_WIDTH, SCREEN_HEIGHT, 0, GL_BGRA, GL_UNSIGNED_BYTE, screen);
-		int scale = 1;
-		while (SCREEN_WIDTH*scale <= width && SCREEN_HEIGHT*scale <= height){
-			scale++;
-		}
-		scale--;
-		int scaledWidth = scale * SCREEN_WIDTH;
-		int scaledHeight = scale * SCREEN_HEIGHT;
-		int x = width/2-scaledWidth/2;
-		int y = height/2-scaledHeight/2;
-		glViewport(x,y,scaledWidth,scaledHeight);
-		glEnable(GL_TEXTURE_2D);
-		glBegin(GL_QUADS);
-		glTexCoord2f(0,0); glVertex2f(-1,-1);
-		glTexCoord2f(1,0); glVertex2f(1,-1);
-		glTexCoord2f(1,1); glVertex2f(1,1);
-		glTexCoord2f(0,1); glVertex2f(-1,1);
-		glEnd();
-	#endif
+	update((double)(t1-tstart) / 1000000000.0, (double)(t1-t0) / 1000000000.0, width, height, nFrames, audioState.buf+audioState.pos*2);
 
 	audioState.pos += nFrames;
 	if (audioState.pos >= TINY3D_AUDIO_BUFSZ){
@@ -407,15 +373,9 @@ static int swidth, sheight;
 }
 @end
 
-#if USE_GL
 void open_window(int width, int height){
 	swidth = width;
 	sheight = height;
-#else
-void open_window(int scale){
-	swidth = SCREEN_WIDTH * scale;
-	sheight = SCREEN_HEIGHT * scale;
-#endif
 	[NSAutoreleasePool new];
 	NSApplication* app = [NSApplication sharedApplication];
 	[app setActivationPolicy:NSApplicationActivationPolicyRegular];

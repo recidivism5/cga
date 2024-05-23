@@ -59,7 +59,7 @@ char *load_file_as_cstring(char *format, ...);
 uint32_t *load_image(bool flip_vertically, int *width, int *height, char *format, ...);
 int16_t *load_audio(int *nFrames, char *format, ...);
 wchar_t *get_keyboard_layout_name();
-wchar_t *get_key_text(int scancode);
+void get_key_text(int scancode, wchar_t *buf, int bufcount);
 
 //text:
 void text_set_target_image(uint32_t *pixels, int width, int height);

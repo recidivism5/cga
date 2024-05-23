@@ -366,6 +366,10 @@ typedef struct {
 	vec3 min,max;
 } mmbb_t;
 
+typedef struct {
+	ivec3 min,max;
+} immbb_t;
+
 void get_entity_mmbb(entity_t *e, mmbb_t *m){
 	m->min[0] = e->current_position[0]-0.5f*e->width;
 	m->min[1] = e->current_position[1]-0.5f*e->height;
@@ -394,17 +398,22 @@ void get_mmbb_center(mmbb_t *m, vec2 c){
 
 void update_entity(entity_t *e){
 	vec3_copy(e->current_position,e->previous_position);
-	//e->velocity[1] -= 0.075f; //gravity
+	e->velocity[1] -= 0.075f; //gravity
 	vec3 d;
 	vec3_copy(e->velocity,d);
 
 	mmbb_t m,em;
 	get_entity_mmbb(e,&m);
 	get_expanded_mmbb(&m,&em,d);
+	immbb_t im;
+	for (int i = 0; i < 3; i++){
+		im.min[i] = (int)floorf(em.min[i]);
+		im.max[i] = (int)floorf(em.max[i]);
+	}
 
-	for (int y = (int)em.min[1]; y <= (int)em.max[1]; y++){
-		for (int z = (int)em.min[2]; z <= (int)em.max[2]; z++){
-			for (int x = (int)em.min[0]; x <= (int)em.max[0]; x++){
+	for (int y = im.min[1]; y <= im.max[1]; y++){
+		for (int z = im.min[2]; z <= im.max[2]; z++){
+			for (int x = im.min[0]; x <= im.max[0]; x++){
 				block_t *b = get_block(x,y,z);
 				if (b && b->id &&
 					m.min[0] < (x+1) && m.max[0] > x &&
@@ -427,9 +436,9 @@ void update_entity(entity_t *e){
 	m.min[1] += d[1];
 	m.max[1] += d[1];
 
-	for (int y = (int)em.min[1]; y <= (int)em.max[1]; y++){
-		for (int z = (int)em.min[2]; z <= (int)em.max[2]; z++){
-			for (int x = (int)em.min[0]; x <= (int)em.max[0]; x++){
+	for (int y = im.min[1]; y <= im.max[1]; y++){
+		for (int z = im.min[2]; z <= im.max[2]; z++){
+			for (int x = im.min[0]; x <= im.max[0]; x++){
 				block_t *b = get_block(x,y,z);
 				if (b && b->id &&
 					m.min[1] < (y+1) && m.max[1] > y &&
@@ -452,9 +461,9 @@ void update_entity(entity_t *e){
 	m.min[0] += d[0];
 	m.max[0] += d[0];
 
-	for (int y = (int)em.min[1]; y <= (int)em.max[1]; y++){
-		for (int z = (int)em.min[2]; z <= (int)em.max[2]; z++){
-			for (int x = (int)em.min[0]; x <= (int)em.max[0]; x++){
+	for (int y = im.min[1]; y <= im.max[1]; y++){
+		for (int z = im.min[2]; z <= im.max[2]; z++){
+			for (int x = im.min[0]; x <= im.max[0]; x++){
 				block_t *b = get_block(x,y,z);
 				if (b && b->id &&
 					m.min[1] < (y+1) && m.max[1] > y &&
@@ -652,7 +661,10 @@ void tick(){
 				if (!b){
 					b = chunk_hashlist_new(&world,new_chunk_pos);
 					for (chunk_bucket_t *oldb = world.first; oldb; oldb = oldb->next){
-						if (ivec3_manhattan(oldb->position,new_chunk_pos) > chunk_radius){
+						if (
+							abs(oldb->position[0]-chunk_pos[0]) > chunk_radius ||
+							abs(oldb->position[1]-chunk_pos[1]) > chunk_radius ||
+							abs(oldb->position[2]-chunk_pos[2]) > chunk_radius){
 							b->chunk = oldb->chunk;
 							chunk_hashlist_remove(&world,oldb);
 							goto L1;
@@ -814,22 +826,7 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	text_set_target_image(textImg,TEXT_IMG_WIDTH,TEXT_IMG_WIDTH);
 	text_set_color(1,1,1);
 	wchar_t tbuf[512];
-	_snwprintf(tbuf,COUNT(tbuf),L"TinyCraft Alpha\nKeyboard: %s\nControls:\n",get_keyboard_layout_name());
-	wcscat(tbuf,L"    Forward: ");
-	wcscat(tbuf,get_key_text(17));
-	wcscat(tbuf,L"\n");
-	wcscat(tbuf,L"    Left: ");
-	wcscat(tbuf,get_key_text(30));
-	wcscat(tbuf,L"\n");
-	wcscat(tbuf,L"    Backward: ");
-	wcscat(tbuf,get_key_text(31));
-	wcscat(tbuf,L"\n");
-	wcscat(tbuf,L"    Right: ");
-	wcscat(tbuf,get_key_text(32));
-	wcscat(tbuf,L"\n");
-	wcscat(tbuf,L"    Jump: ");
-	wcscat(tbuf,get_key_text(57));
-	wcscat(tbuf,L"\n    Break: Left Mouse\n    Place: Right Mouse");
+	_snwprintf(tbuf,COUNT(tbuf),L"TinyCraft Alpha\nKeyboard: %s\n",get_keyboard_layout_name());
 	text_draw(0,TEXT_IMG_WIDTH,0,TEXT_IMG_WIDTH,tbuf);
 	for (int i = 0; i < TEXT_IMG_WIDTH*TEXT_IMG_WIDTH; i++){
 		uint8_t *p = textImg + i;

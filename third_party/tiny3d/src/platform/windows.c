@@ -450,9 +450,8 @@ wchar_t *get_keyboard_layout_name(){
     }
 }
 
-wchar_t *get_key_text(int scancode){
-    static wchar_t buf[9];
-    GetKeyNameTextW(scancode<<16,buf,COUNT(buf));
+void get_key_text(int scancode, wchar_t *buf, int bufcount){
+    GetKeyNameTextW(scancode<<16,buf,bufcount);
     return buf;
 }
 

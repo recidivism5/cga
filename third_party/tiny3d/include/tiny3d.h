@@ -58,12 +58,14 @@ unsigned char *load_file(int *size, char *format, ...);
 char *load_file_as_cstring(char *format, ...);
 uint32_t *load_image(bool flip_vertically, int *width, int *height, char *format, ...);
 int16_t *load_audio(int *nFrames, char *format, ...);
+wchar_t *get_keyboard_layout_name();
+wchar_t *get_key_text(int scancode);
 
 //text:
 void text_set_target_image(uint32_t *pixels, int width, int height);
 void text_set_font(char *ttfPathFormat, ...);
 void text_set_font_height(int height);
-void text_set_color(uint32_t color);
+void text_set_color(float r, float g, float b);
 void text_draw(int left, int right, int bottom, int top, wchar_t *str);
 
 #define COUNT(arr) (sizeof(arr)/sizeof(*arr))

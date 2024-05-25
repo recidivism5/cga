@@ -1014,6 +1014,8 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	if (!init){
 		init = true;
 
+		text_set_font("comic.ttf");
+
 		int w,h;
 		uint32_t *p = load_image(true,&w,&h,"textures/blocks.png");
 		glGenTextures(1,&block_texture_id);
@@ -1119,11 +1121,10 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	glLoadIdentity();
 	memset(textImg,0,sizeof(textImg));
 	text_set_target_image(textImg,TEXT_IMG_WIDTH,TEXT_IMG_WIDTH);
+	text_set_font_height(12);
 	text_set_color(1,0,1);
 	wchar_t tbuf[512];
-	wchar_t fname[33];
-	mbstowcs(fname,get_font_name("comic.ttf"),COUNT(fname));
-	_snwprintf(tbuf,COUNT(tbuf),L"TinyCraft Alpha\nKeyboard: %s\ncam_pos: %f %f %f\nchunk_pos: %d %d %d\n%s",get_keyboard_layout_name(),cam_pos[0],cam_pos[1],cam_pos[2],chunk_pos[0],chunk_pos[1],chunk_pos[2],fname);
+	_snwprintf(tbuf,COUNT(tbuf),L"TinyCraft Alpha\nKeyboard: %s\ncam_pos: %.2f %.2f %.2f\nchunk_pos: %d %d %d",get_keyboard_layout_name(),cam_pos[0],cam_pos[1],cam_pos[2],chunk_pos[0],chunk_pos[1],chunk_pos[2]);
 	text_draw(0,TEXT_IMG_WIDTH,0,TEXT_IMG_WIDTH,tbuf);
 	for (int i = 0; i < TEXT_IMG_WIDTH*TEXT_IMG_WIDTH; i++){
 		uint8_t *p = (uint8_t *)(textImg + i);

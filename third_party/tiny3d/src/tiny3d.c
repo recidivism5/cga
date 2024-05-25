@@ -170,7 +170,7 @@ typedef struct _tagTT_NAME_RECORD{
 #define ENSURE_SHORT(x) (is_little_endian() ? SWAPSHORT(x) : x)
 #define ENSURE_LONG(x) (is_little_endian() ? SWAPLONG(x) : x)
 
-char *get_font_name(char *path){
+void get_font_name(char *path, char *out, int outCount){
 	FILE *f = fopen(path,"rb");
 	ASSERT(f);
 	TT_OFFSET_TABLE ttOffsetTable;
@@ -206,14 +206,13 @@ char *get_font_name(char *path){
 		if(ttRecord.uNameID == 1){
 			ttRecord.uStringLength = ENSURE_SHORT(ttRecord.uStringLength);
 			if (ttRecord.uStringLength){
-				ASSERT(ttRecord.uStringLength > 0 && ttRecord.uStringLength < 32);
+				ASSERT(ttRecord.uStringLength > 0 && ttRecord.uStringLength < outCount);
 				ttRecord.uStringOffset = ENSURE_SHORT(ttRecord.uStringOffset);
 				ASSERT(!fseek(f,tblDir.uOffset + ttNTHeader.uStorageOffset + ttRecord.uStringOffset, SEEK_SET));
-				static char name[33];
-				fread(name,ttRecord.uStringLength,1,f);
-				name[ttRecord.uStringLength] = 0;
+				fread(out,ttRecord.uStringLength,1,f);
+				out[ttRecord.uStringLength] = 0;
 				fclose(f);
-				return name;
+				return;
 			}
 		}
 	}

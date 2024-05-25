@@ -24,7 +24,10 @@ block_type_t block_types[] = {
 	{"red_glass",true,{{8,1},{8,1},{8,1},{8,1},{8,1},{8,1}}},
 	{"green_glass",true,{{8,2},{8,2},{8,2},{8,2},{8,2},{8,2}}},
 	{"blue_glass",true,{{8,3},{8,3},{8,3},{8,3},{8,3},{8,3}}},
-	{"brick",false,{{10,0},{10,0},{10,0},{10,0},{10,0},{10,0}}},
+	{"brick",false,{{2,1},{2,1},{2,1},{2,1},{2,1},{2,1}}},
+	{"yellow_light",false,{{3,2},{3,2},{3,2},{3,2},{3,2},{3,2}}},
+	{"purple_light",false,{{3,3},{3,3},{3,3},{3,3},{3,3},{3,3}}},
+	{"double_slab",false,{{4,0},{4,0},{4,1},{4,1},{4,0},{4,0}}},
 };
 
 typedef enum {
@@ -39,6 +42,9 @@ typedef enum {
 	BLOCK_GREEN_GLASS,
 	BLOCK_BLUE_GLASS,
 	BLOCK_BRICK,
+	BLOCK_YELLOW_LIGHT,
+	BLOCK_PURPLE_LIGHT,
+	BLOCK_DOUBLE_SLAB
 } block_id_t;
 
 typedef struct {
@@ -66,6 +72,15 @@ vertex_t *vertex_list_make_room(vertex_list_t *list, int count){
 	return list->elements+list->used-count;
 }
 
+void vertex_list_reset(vertex_list_t *list){
+	if (list->elements){
+		free(list->elements);
+	}
+	list->elements = 0;
+	list->total = 0;
+	list->used = 0;
+}
+
 #define CHUNK_WIDTH 16
 int chunk_radius = 2;
 
@@ -76,6 +91,14 @@ typedef struct {
 	vertex_list_t transparent_mesh;
 	vertex_list_t opaque_mesh;
 } chunk_t;
+
+block_t *get_block_in_chunk(chunk_t *c, int x, int y, int z){
+	return c->blocks + y*CHUNK_WIDTH*CHUNK_WIDTH + z*CHUNK_WIDTH + x;
+}
+
+void set_block_in_chunk(chunk_t *c, int x, int y, int z, int id){
+	get_block_in_chunk(c,x,y,z)->id = id;
+}
 
 typedef struct chunk_bucket_s {
 	struct chunk_bucket_s *prev, *next;
@@ -101,11 +124,11 @@ uint32_t fnv_1a(char *key, int len){
 
 chunk_bucket_t *chunk_hashlist_get(chunk_hashlist_t *list, ivec3 position){
 	if (!list->total) return 0;
-	uint32_t index = fnv_1a(position,sizeof(ivec3)) % list->total;
+	uint32_t index = fnv_1a((char *)position,sizeof(ivec3)) % list->total;
 	chunk_bucket_t *tombstone = 0;
 	while (1){
 		chunk_bucket_t *b = list->buckets+index;
-		if (b->chunk == TOMBSTONE) tombstone = b;
+		if ((uintptr_t)b->chunk == TOMBSTONE) tombstone = b;
 		else if (b->chunk == 0) return tombstone ? tombstone : b;
 		else if (!memcmp(b->position,position,sizeof(ivec3))) return b;
 		index = (index + 1) % list->total;
@@ -114,12 +137,12 @@ chunk_bucket_t *chunk_hashlist_get(chunk_hashlist_t *list, ivec3 position){
 
 chunk_bucket_t *chunk_hashlist_get_checked(chunk_hashlist_t *list, ivec3 position){
 	chunk_bucket_t *b = chunk_hashlist_get(list,position);
-	if (!b || b->chunk == 0 || b->chunk == TOMBSTONE) return 0;
+	if (!b || b->chunk == 0 || (uintptr_t)b->chunk == TOMBSTONE) return 0;
 	return b;
 }
 
 void chunk_hashlist_remove(chunk_hashlist_t *list, chunk_bucket_t *b){
-	b->chunk = TOMBSTONE;
+	b->chunk = (chunk_t *)TOMBSTONE;
 	if (b->prev) b->prev->next = b->next;
 	if (b->next) b->next->prev = b->prev;
 	if (list->first == b) list->first = b->next;
@@ -167,24 +190,288 @@ chunk_bucket_t *chunk_hashlist_new(chunk_hashlist_t *list, ivec3 position){
 	}
 	list->last = b;
 	b->next = 0;
-	if (b->chunk == TOMBSTONE) list->tombstones--;
+	if ((uintptr_t)b->chunk == TOMBSTONE) list->tombstones--;
 	list->used++;
 	return b;
 }
 
-chunk_hashlist_t world;
+void chunk_hashlist_reset(chunk_hashlist_t *list){
+	if (list->buckets){
+		free(list->buckets);
+	}
+	memset(list,0,sizeof(*list));
+}
+
+chunk_hashlist_t world, chunk_remesh_list;
+
+void queue_remesh(int x, int y, int z){
+	chunk_bucket_t *b = chunk_hashlist_get_checked(&world,(ivec3){x,y,z});
+	if (b){
+		if (!chunk_hashlist_get_checked(&chunk_remesh_list,(ivec3){x,y,z})){
+			chunk_bucket_t *nb = chunk_hashlist_new(&chunk_remesh_list,(ivec3){x,y,z});
+			nb->chunk = b->chunk;
+		}
+	}
+}
+
+void get_chunk_position(ivec3 world_pos, ivec3 chunk_pos){
+	for (int i = 0; i < 3; i++){
+		chunk_pos[i] = (world_pos[i] < 0 ? -1 : 0) + (world_pos[i] + (world_pos[i] < 0 ? 1 : 0)) / CHUNK_WIDTH;
+	}
+}
+
+void get_chunk_position_vec3(vec3 world_pos, ivec3 chunk_pos){
+	ivec3 v;
+	for (int i = 0; i < 3; i++){
+		v[i] = (int)floorf(world_pos[i]);
+	}
+	get_chunk_position(v,chunk_pos);
+}
+
+block_t *get_block(int x, int y, int z){
+	ivec3 chunk_pos;
+	get_chunk_position((ivec3){x,y,z},chunk_pos);
+	chunk_bucket_t *b = chunk_hashlist_get_checked(&world,chunk_pos);
+	if (b){
+		ivec3 bp = {x,y,z};
+		for (int i = 0; i < 3; i++){
+			bp[i] = modulo(bp[i],CHUNK_WIDTH);
+		}
+		return get_block_in_chunk(b->chunk,bp[0],bp[1],bp[2]);
+	} else return 0;
+}
+
+typedef struct {
+	vec3 min,max;
+} mmbb_t;
+
+typedef struct {
+	ivec3 min,max;
+} immbb_t;
+
+typedef struct {
+	ivec3 positions[32*32*32];
+	int write_index, read_index;
+} ivec3_ring_t;
+
+ivec3_ring_t light_prop_ring, dark_prop_ring;
+
+void ivec3_ring_push(ivec3_ring_t *ring, int x, int y, int z){
+	ring->positions[ring->write_index][0] = x;
+	ring->positions[ring->write_index][1] = y;
+	ring->positions[ring->write_index][2] = z;
+	ring->write_index = (ring->write_index + 1) % COUNT(ring->positions);
+	ASSERT(ring->write_index != ring->read_index);
+}
+
+int *ivec3_ring_pop(ivec3_ring_t *ring){
+	if (ring->write_index == ring->read_index){
+		return 0;
+	}
+	int *p = (int *)(ring->positions+ring->read_index);
+	ring->read_index = (ring->read_index + 1) % COUNT(ring->positions);
+	return p;
+}
+
+int get_yellow_light(block_t *b){
+	return b->light >> 4;
+}
+
+int get_blue_light(block_t *b){
+	return b->light & 0x0f;
+}
+
+void set_yellow_light(block_t *b, int val){
+	b->light &= 0x0f;
+	b->light |= val << 4;
+}
+
+void set_blue_light(block_t *b, int val){
+	b->light &= 0xf0;
+	b->light |= val;
+}
+
+/*void prop_light_neighbor(int x, int y, int z, int (*get_light)(block_t *), void (*set_light)(block_t *, int), int val, ivec3_ring_t *ring){
+	block_t *b = get_block(x,y,z);
+	if (b && block_types[b->id].transparent){
+		if (get_light(b) < val){
+			set_light(b,val);
+			if (val > 1){
+				ivec3_ring_push(ring,x,y,z);
+			}
+		}
+	}
+}*/
+
+void prop_light_neighbor(int x, int y, int z, int yellow, int purple){
+	block_t *b = get_block(x,y,z);
+	if (b && block_types[b->id].transparent){
+		if (get_yellow_light(b) < yellow){
+			set_yellow_light(b,yellow);
+			if (yellow > 1){
+				ivec3_ring_push(&light_prop_ring,x,y,z);
+			}
+		}
+		if (get_blue_light(b) < purple){
+			set_blue_light(b,purple);
+			if (purple > 1){
+				ivec3_ring_push(&light_prop_ring,x,y,z);
+			}
+		}
+	}
+}
+
+void prop_dark_neighbor(int x, int y, int z, int yellow, int purple){
+	block_t *b = get_block(x,y,z);
+	if (b && block_types[b->id].transparent){
+		int ny = get_yellow_light(b);
+		int np = get_blue_light(b);
+		if (yellow > 0 && ny > 0){
+			ivec3_ring_push(ny < yellow ? &dark_prop_ring : &light_prop_ring,x,y,z);
+		}
+		if (purple > 0 && np > 0){
+			ivec3_ring_push(np < purple ? &dark_prop_ring : &light_prop_ring,x,y,z);
+		}
+	}
+}
+
+immbb_t light_prop_bounds;
+
+void propagate_light(){
+	int *p;
+	while (p = ivec3_ring_pop(&light_prop_ring)){
+		block_t *b = get_block(p[0],p[1],p[2]);
+		if (b){
+			for (int i = 0; i < 3; i++){
+				if (p[i] > light_prop_bounds.max[i]){
+					light_prop_bounds.max[i] = p[i];
+				} else if (p[i] < light_prop_bounds.min[i]){
+					light_prop_bounds.min[i] = p[i];
+				}
+			}
+			int yellow = MAX(0,get_yellow_light(b)-1);
+			int purple = MAX(0,get_blue_light(b)-1);
+			prop_light_neighbor(p[0]-1,p[1],p[2],yellow,purple);
+			prop_light_neighbor(p[0]+1,p[1],p[2],yellow,purple);
+			prop_light_neighbor(p[0],p[1]-1,p[2],yellow,purple);
+			prop_light_neighbor(p[0],p[1]+1,p[2],yellow,purple);
+			prop_light_neighbor(p[0],p[1],p[2]-1,yellow,purple);
+			prop_light_neighbor(p[0],p[1],p[2]+1,yellow,purple);
+		}
+	}
+}
+
+void propagate_dark(){
+	for (int i = 0; i < 3; i++){
+		light_prop_bounds.min[i] = 0;
+		light_prop_bounds.max[i] = 0;
+	}
+	int *p;
+	while (p = ivec3_ring_pop(&dark_prop_ring)){
+		block_t *b = get_block(p[0],p[1],p[2]);
+		if (b){
+			for (int i = 0; i < 3; i++){
+				if (p[i] > light_prop_bounds.max[i]){
+					light_prop_bounds.max[i] = p[i];
+				} else if (p[i] < light_prop_bounds.min[i]){
+					light_prop_bounds.min[i] = p[i];
+				}
+			}
+			int yellow = MAX(0,get_yellow_light(b));
+			int purple = MAX(0,get_blue_light(b));
+			prop_dark_neighbor(p[0]-1,p[1],p[2],yellow,purple);
+			prop_dark_neighbor(p[0]+1,p[1],p[2],yellow,purple);
+			prop_dark_neighbor(p[0],p[1]-1,p[2],yellow,purple);
+			prop_dark_neighbor(p[0],p[1]+1,p[2],yellow,purple);
+			prop_dark_neighbor(p[0],p[1],p[2]-1,yellow,purple);
+			prop_dark_neighbor(p[0],p[1],p[2]+1,yellow,purple);
+			b->light = 0;
+		}
+	}
+	propagate_light();
+	ivec3 cmin, cmax;
+	get_chunk_position(light_prop_bounds.min,cmin);
+	get_chunk_position(light_prop_bounds.max,cmax);
+	for (int x = cmin[0]; x <= cmax[0]; x++){
+		for (int y = cmin[1]; y <= cmax[1]; y++){
+			for (int z = cmin[2]; z <= cmax[2]; z++){
+				queue_remesh(x,y,z);
+			}
+		}
+	}
+}
 
 void generate_chunk(chunk_t *c){
 	for (int y = 0; y < CHUNK_WIDTH; y++){
 		for (int z = 0; z < CHUNK_WIDTH; z++){
 			for (int x = 0; x < CHUNK_WIDTH; x++){
-				block_t *b = c->blocks + y*CHUNK_WIDTH*CHUNK_WIDTH + z*CHUNK_WIDTH + x;
+				block_t *b = get_block_in_chunk(c,x,y,z);
 				if (y < 4){
-					b->id = BLOCK_DIRT;
+					b->id = BLOCK_BRICK;
 				} else {
 					b->id = BLOCK_AIR;
 				}
-				b->light = 255;
+				b->light = 0;
+			}
+		}
+	}
+	set_block_in_chunk(c,3,4,8,BLOCK_YELLOW_LIGHT);
+	set_block_in_chunk(c,12,4,8,BLOCK_PURPLE_LIGHT);
+}
+
+void try_set_yellow_light(int x, int y, int z, int val){
+	block_t *b = get_block(x,y,z);
+	if (b && block_types[b->id].transparent){
+		set_yellow_light(b,val);
+		ivec3_ring_push(&light_prop_ring,x,y,z);
+	}
+}
+
+void try_set_purple_light(int x, int y, int z, int val){
+	block_t *b = get_block(x,y,z);
+	if (b && block_types[b->id].transparent){
+		set_blue_light(b,val);
+		ivec3_ring_push(&light_prop_ring,x,y,z);
+	}
+}
+
+void try_set_light(int x, int y, int z){
+	block_t *b = get_block(x,y,z);
+	if (b && block_types[b->id].transparent){
+		ivec3_ring_push(&light_prop_ring,x,y,z);
+	}
+}
+
+void try_set_dark(int x, int y, int z){
+	block_t *b = get_block(x,y,z);
+	if (b && block_types[b->id].transparent){
+		ivec3_ring_push(&dark_prop_ring,x,y,z);
+	}
+}
+
+void init_lights(chunk_bucket_t *c){
+	for (int y = 0; y < CHUNK_WIDTH; y++){
+		for (int z = 0; z < CHUNK_WIDTH; z++){
+			for (int x = 0; x < CHUNK_WIDTH; x++){
+				block_t *b = get_block_in_chunk(c->chunk,x,y,z);
+				int wx = c->position[0] * CHUNK_WIDTH + x;
+				int wy = c->position[1] * CHUNK_WIDTH + y;
+				int wz = c->position[2] * CHUNK_WIDTH + z;
+				if (b->id == BLOCK_YELLOW_LIGHT){
+					try_set_yellow_light(wx-1,wy,wz,15);
+					try_set_yellow_light(wx+1,wy,wz,15);
+					try_set_yellow_light(wx,wy-1,wz,15);
+					try_set_yellow_light(wx,wy+1,wz,15);
+					try_set_yellow_light(wx,wy,wz-1,15);
+					try_set_yellow_light(wx,wy,wz+1,15);
+				} else if (b->id == BLOCK_PURPLE_LIGHT){
+					try_set_purple_light(wx-1,wy,wz,15);
+					try_set_purple_light(wx+1,wy,wz,15);
+					try_set_purple_light(wx,wy-1,wz,15);
+					try_set_purple_light(wx,wy+1,wz,15);
+					try_set_purple_light(wx,wy,wz-1,15);
+					try_set_purple_light(wx,wy,wz+1,15);
+				}
 			}
 		}
 	}
@@ -201,9 +488,6 @@ void init_light_coefficients(){
 	}
 }
 
-#define YELLOW_LIGHT(v) ((v)>>4)
-#define PURPLE_LIGHT(v) ((v)&0x0f)
-
 float cube_vertices[] = {
 	0,1,0, 0,0,0, 0,0,1, 0,0,1, 0,1,1, 0,1,0,
 	1,1,1, 1,0,1, 1,0,0, 1,0,0, 1,1,0, 1,1,1,
@@ -217,16 +501,19 @@ float cube_vertices[] = {
 
 void append_block_face(chunk_t *c, int x, int y, int z, int face_id, block_t *neighbor, block_type_t *type){
 	vertex_t *v = vertex_list_make_room(type->transparent ? &c->transparent_mesh : &c->opaque_mesh, 6);
-	uint8_t light = neighbor ? 
-		(uint8_t) (255 * (ambient_light_coefficients[face_id] * light_coefficients[MAX(YELLOW_LIGHT(neighbor->light),PURPLE_LIGHT(neighbor->light))])) :
-		(uint8_t) (255 * ambient_light_coefficients[face_id]);
+	float yellow = light_coefficients[get_yellow_light(neighbor)];
+	float purple = light_coefficients[get_blue_light(neighbor)];
+	float ambient = ambient_light_coefficients[face_id];
+	uint8_t r = (uint8_t)(255 * ambient * yellow);
+	uint8_t g = (uint8_t)(255 * ambient * MAX(yellow,purple));
+	uint8_t b = (uint8_t)(255 * ambient * purple);
 	for (int i = 0; i < 6; i++){
 		v[i].x = x + cube_vertices[(face_id * 6 + i)*3 + 0];
 		v[i].y = y + cube_vertices[(face_id * 6 + i)*3 + 1];
 		v[i].z = z + cube_vertices[(face_id * 6 + i)*3 + 2];
-		v[i].r = light;
-		v[i].g = light;
-		v[i].b = light;
+		v[i].r = r;
+		v[i].g = g;
+		v[i].b = b;
 		v[i].a = 255;
 	}
 	float w = 1.0f/16.0f;
@@ -260,30 +547,28 @@ void test_neighbor(chunk_t *c, int x, int y, int z, int face_id, int axis, int d
 			return;
 		}
 		v[axis] = CHUNK_WIDTH-1;
-		nb = local_chunks[face_id]->chunk->blocks + v[1]*CHUNK_WIDTH*CHUNK_WIDTH + v[2]*CHUNK_WIDTH + v[0];
+		nb = get_block_in_chunk(local_chunks[face_id]->chunk,v[0],v[1],v[2]);
 	} else if (v[axis] == (CHUNK_WIDTH-1) && dir == 1){
 		if (!local_chunks[face_id]){
 			return;
 		}
 		v[axis] = 0;
-		nb = local_chunks[face_id]->chunk->blocks + v[1]*CHUNK_WIDTH*CHUNK_WIDTH + v[2]*CHUNK_WIDTH + v[0];
+		nb = get_block_in_chunk(local_chunks[face_id]->chunk,v[0],v[1],v[2]);
 	} else {
 		v[axis] += dir;
-		nb = c->blocks + v[1]*CHUNK_WIDTH*CHUNK_WIDTH + v[2]*CHUNK_WIDTH + v[0];
+		nb = get_block_in_chunk(c,v[0],v[1],v[2]);
 	}
 	if (nb){
 		block_type_t *nbt = block_types+nb->id;
 		if (nbt->transparent){
 			append_block_face(c,x,y,z,face_id,nb,type);
 		}
-	} else {
-		append_block_face(c,x,y,z,face_id,0,type);
 	}
 }
 
 void mesh_chunk(chunk_bucket_t *c){
-	c->chunk->opaque_mesh.used = 0;
-	c->chunk->transparent_mesh.used = 0;
+	vertex_list_reset(&c->chunk->opaque_mesh);
+	vertex_list_reset(&c->chunk->transparent_mesh);
 	local_chunks[0] = chunk_hashlist_get_checked(&world,(ivec3){c->position[0]-1,c->position[1],c->position[2]});
 	local_chunks[1] = chunk_hashlist_get_checked(&world,(ivec3){c->position[0]+1,c->position[1],c->position[2]});
 	local_chunks[2] = chunk_hashlist_get_checked(&world,(ivec3){c->position[0],c->position[1]-1,c->position[2]});
@@ -293,7 +578,7 @@ void mesh_chunk(chunk_bucket_t *c){
 	for (int y = 0; y < CHUNK_WIDTH; y++){
 		for (int z = 0; z < CHUNK_WIDTH; z++){
 			for (int x = 0; x < CHUNK_WIDTH; x++){
-				block_t *b = c->chunk->blocks + y*CHUNK_WIDTH*CHUNK_WIDTH + z*CHUNK_WIDTH + x;
+				block_t *b = get_block_in_chunk(c->chunk,x,y,z);
 				block_type_t *bt = block_types+b->id;
 				if (b->id){
 					test_neighbor(c->chunk,x,y,z,0,0,-1,bt);
@@ -306,6 +591,13 @@ void mesh_chunk(chunk_bucket_t *c){
 			}
 		}
 	}
+}
+
+void mesh_chunks(){
+	for (chunk_bucket_t *b = chunk_remesh_list.first; b; b = b->next){
+		mesh_chunk(b);
+	}
+	chunk_hashlist_reset(&chunk_remesh_list);
 }
 
 typedef struct {
@@ -334,41 +626,6 @@ void entity_set_position(entity_t *e, float x, float y, float z){
 void get_entity_interpolated_position(entity_t *e, vec3 position){
 	vec3_lerp(e->previous_position,e->current_position,(float)interpolant,position);
 }
-
-void get_chunk_position(vec3 world_pos, ivec3 chunk_pos){
-	for (int i = 0; i < 3; i++){
-		chunk_pos[i] = (world_pos[i] < 0 ? -1 : 0) + ((int)world_pos[i]) / CHUNK_WIDTH;
-	}
-}
-
-block_t *get_block(int x, int y, int z){
-	ivec3 chunk_pos = {x,y,z};
-	for (int i = 0; i < 3; i++){
-		chunk_pos[i] = (chunk_pos[i] < 0 ? -1 : 0) + chunk_pos[i] / CHUNK_WIDTH;
-	}
-	chunk_bucket_t *b = chunk_hashlist_get_checked(&world,chunk_pos);
-	if (b){
-		ivec3 bp = {x,y,z};
-		for (int i = 0; i < 3; i++){
-			bp[i] = modulo(bp[i],CHUNK_WIDTH);
-		}
-		return b->chunk->blocks + bp[1]*CHUNK_WIDTH*CHUNK_WIDTH + bp[2]*CHUNK_WIDTH + bp[0];
-	} else return 0;
-}
-
-void get_entity_chunk_position(entity_t *e, ivec3 chunk_pos){
-	vec3 ppos;
-	get_entity_interpolated_position(&player,ppos);
-	get_chunk_position(ppos,chunk_pos);
-}
-
-typedef struct {
-	vec3 min,max;
-} mmbb_t;
-
-typedef struct {
-	ivec3 min,max;
-} immbb_t;
 
 void get_entity_mmbb(entity_t *e, mmbb_t *m){
 	m->min[0] = e->current_position[0]-0.5f*e->width;
@@ -598,8 +855,24 @@ void keydown(int key){
 			block_raycast_result_t brr;
 			get_player_target_block(&brr);
 			if (brr.block){
+				if (brr.block->id == BLOCK_YELLOW_LIGHT || brr.block->id == BLOCK_PURPLE_LIGHT){
+					try_set_dark(brr.block_pos[0]-1,brr.block_pos[1],brr.block_pos[2]);
+					try_set_dark(brr.block_pos[0]+1,brr.block_pos[1],brr.block_pos[2]);
+					try_set_dark(brr.block_pos[0],brr.block_pos[1]-1,brr.block_pos[2]);
+					try_set_dark(brr.block_pos[0],brr.block_pos[1]+1,brr.block_pos[2]);
+					try_set_dark(brr.block_pos[0],brr.block_pos[1],brr.block_pos[2]-1);
+					try_set_dark(brr.block_pos[0],brr.block_pos[1],brr.block_pos[2]+1);
+				} else {
+					try_set_light(brr.block_pos[0]-1,brr.block_pos[1],brr.block_pos[2]);
+					try_set_light(brr.block_pos[0]+1,brr.block_pos[1],brr.block_pos[2]);
+					try_set_light(brr.block_pos[0],brr.block_pos[1]-1,brr.block_pos[2]);
+					try_set_light(brr.block_pos[0],brr.block_pos[1]+1,brr.block_pos[2]);
+					try_set_light(brr.block_pos[0],brr.block_pos[1],brr.block_pos[2]-1);
+					try_set_light(brr.block_pos[0],brr.block_pos[1],brr.block_pos[2]+1);
+				}
 				brr.block->id = BLOCK_AIR;
-				//mesh_world();
+				brr.block->light = 0;
+				propagate_dark();
 			}
 			break;
 		}
@@ -607,15 +880,20 @@ void keydown(int key){
 			block_raycast_result_t brr;
 			get_player_target_block(&brr);
 			if (brr.block){
-				block_t *b = get_block(
-					brr.block_pos[0]+brr.face_normal[0],
-					brr.block_pos[1]+brr.face_normal[1],
-					brr.block_pos[2]+brr.face_normal[2]
-				);
+				int x = brr.block_pos[0]+brr.face_normal[0];
+				int y = brr.block_pos[1]+brr.face_normal[1];
+				int z = brr.block_pos[2]+brr.face_normal[2];
+				block_t *b = get_block(x,y,z);
 				if (b && !b->id){
-					b->id = BLOCK_BRICK;
+					b->id = BLOCK_YELLOW_LIGHT;
+					try_set_yellow_light(x-1,y,z,15);
+					try_set_yellow_light(x+1,y,z,15);
+					try_set_yellow_light(x,y-1,z,15);
+					try_set_yellow_light(x,y+1,z,15);
+					try_set_yellow_light(x,y,z-1,15);
+					try_set_yellow_light(x,y,z+1,15);
 				}
-				//mesh_world();
+				propagate_dark();
 			}
 			break;
 		}
@@ -652,7 +930,7 @@ void mousemove(int x, int y){
 
 void tick(){
 	ivec3 chunk_pos;
-	get_entity_chunk_position(&player,chunk_pos);
+	get_chunk_position_vec3(player.current_position,chunk_pos);
 	for (int x = -chunk_radius; x <= chunk_radius; x++){
 		for (int y = -chunk_radius; y <= chunk_radius; y++){
 			for (int z = -chunk_radius; z <= chunk_radius; z++){
@@ -674,43 +952,57 @@ void tick(){
 					ASSERT(b->chunk);
 					L1:;
 					generate_chunk(b->chunk);
-					mesh_chunk(b);
+					init_lights(b);
+					queue_remesh(b->position[0],b->position[1],b->position[2]);
+					queue_remesh(b->position[0]-1,b->position[1],b->position[2]);
+					queue_remesh(b->position[0]+1,b->position[1],b->position[2]);
+					queue_remesh(b->position[0],b->position[1]-1,b->position[2]);
+					queue_remesh(b->position[0],b->position[1]+1,b->position[2]);
+					queue_remesh(b->position[0],b->position[1],b->position[2]-1);
+					queue_remesh(b->position[0],b->position[1],b->position[2]+1); // queue this chunk and its neighbors for remesh
+					goto L2; //limit to one chunk per tick
 				}
 			}
 		}
 	}
+	L2:;
+	//propagate_dark();
+	propagate_light();
+	mesh_chunks();
 
-	ivec2 move_dir;
-	if (keys.left && keys.right){
-		move_dir[0] = 0;
-	} else if (keys.left){
-		move_dir[0] = -1;
-	} else if (keys.right){
-		move_dir[0] = 1;
-	} else {
-		move_dir[0] = 0;
+	if (chunk_hashlist_get_checked(&world,chunk_pos)){
+		ivec2 move_dir;
+		if (keys.left && keys.right){
+			move_dir[0] = 0;
+		} else if (keys.left){
+			move_dir[0] = -1;
+		} else if (keys.right){
+			move_dir[0] = 1;
+		} else {
+			move_dir[0] = 0;
+		}
+		if (keys.backward && keys.forward){
+			move_dir[1] = 0;
+		} else if (keys.backward){
+			move_dir[1] = 1;
+		} else if (keys.forward){
+			move_dir[1] = -1;
+		} else {
+			move_dir[1] = 0;
+		}
+		vec3 move_vec = {(float)move_dir[0],0,(float)move_dir[1]};
+		if (move_dir[0] || move_dir[1]){
+			vec3_normalize(move_vec,move_vec);
+			vec3_scale(move_vec,0.25f,move_vec);
+			vec3_rotate_deg(move_vec,(vec3){0,1,0},-player.head_rotation[1],move_vec);
+		}
+		player.velocity[0] = LERP(player.velocity[0],move_vec[0],0.3f);
+		player.velocity[2] = LERP(player.velocity[2],move_vec[2],0.3f);
+		if (player.on_ground && keys.jump){
+			player.velocity[1] = 0.5f;
+		}
+		update_entity(&player);
 	}
-	if (keys.backward && keys.forward){
-		move_dir[1] = 0;
-	} else if (keys.backward){
-		move_dir[1] = 1;
-	} else if (keys.forward){
-		move_dir[1] = -1;
-	} else {
-		move_dir[1] = 0;
-	}
-	vec3 move_vec = {(float)move_dir[0],0,(float)move_dir[1]};
-	if (move_dir[0] || move_dir[1]){
-		vec3_normalize(move_vec,move_vec);
-		vec3_scale(move_vec,0.25f,move_vec);
-		vec3_rotate_deg(move_vec,(vec3){0,1,0},-player.head_rotation[1],move_vec);
-	}
-	player.velocity[0] = LERP(player.velocity[0],move_vec[0],0.3f);
-	player.velocity[2] = LERP(player.velocity[2],move_vec[2],0.3f);
-	if (player.on_ground && keys.jump){
-		player.velocity[1] = 0.5f;
-	}
-	update_entity(&player);
 }
 
 #define TEXT_IMG_WIDTH 256
@@ -754,11 +1046,13 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	get_player_head_pos(cam_pos);
 	block_raycast_result_t brr;
 	get_player_target_block(&brr);
+	ivec3 chunk_pos;
+	get_chunk_position_vec3(cam_pos,chunk_pos);
 
 	//DRAW:	
 	glViewport(0,0,width,height);
 
-	glClearColor(1,0,0,1);
+	glClearColor(0,0,0,1);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 	glEnable(GL_DEPTH_TEST);
@@ -796,6 +1090,7 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 			glVertex3d(0,0,1); glVertex3d(1,0,1);
 			glVertex3d(0,1,1); glVertex3d(1,1,1);
 		glEnd();
+		glColor3d(1,1,1);
 		glPopMatrix();
 	}
 
@@ -824,21 +1119,23 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	glLoadIdentity();
 	memset(textImg,0,sizeof(textImg));
 	text_set_target_image(textImg,TEXT_IMG_WIDTH,TEXT_IMG_WIDTH);
-	text_set_color(1,1,1);
+	text_set_color(1,0,1);
 	wchar_t tbuf[512];
-	_snwprintf(tbuf,COUNT(tbuf),L"TinyCraft Alpha\nKeyboard: %s\n",get_keyboard_layout_name());
+	wchar_t fname[33];
+	mbstowcs(fname,get_font_name("comic.ttf"),COUNT(fname));
+	_snwprintf(tbuf,COUNT(tbuf),L"TinyCraft Alpha\nKeyboard: %s\ncam_pos: %f %f %f\nchunk_pos: %d %d %d\n%s",get_keyboard_layout_name(),cam_pos[0],cam_pos[1],cam_pos[2],chunk_pos[0],chunk_pos[1],chunk_pos[2],fname);
 	text_draw(0,TEXT_IMG_WIDTH,0,TEXT_IMG_WIDTH,tbuf);
 	for (int i = 0; i < TEXT_IMG_WIDTH*TEXT_IMG_WIDTH; i++){
-		uint8_t *p = textImg + i;
+		uint8_t *p = (uint8_t *)(textImg + i);
 		p[3] = p[0];
 	}
 	glBindTexture(GL_TEXTURE_2D,textImgTid);
 	glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,TEXT_IMG_WIDTH,TEXT_IMG_WIDTH,0,GL_RGBA,GL_UNSIGNED_BYTE,textImg);
 	glBegin(GL_QUADS);
-	glTexCoord2f(0,0); glVertex2f(0,height-TEXT_IMG_WIDTH);
-	glTexCoord2f(1,0); glVertex2f(TEXT_IMG_WIDTH,height-TEXT_IMG_WIDTH);
-	glTexCoord2f(1,1); glVertex2f(TEXT_IMG_WIDTH,height);
-	glTexCoord2f(0,1); glVertex2f(0,height);
+	glTexCoord2f(0,0); glVertex2f(0,height-(float)TEXT_IMG_WIDTH);
+	glTexCoord2f(1,0); glVertex2f(TEXT_IMG_WIDTH,height-(float)TEXT_IMG_WIDTH);
+	glTexCoord2f(1,1); glVertex2f(TEXT_IMG_WIDTH,(float)height);
+	glTexCoord2f(0,1); glVertex2f(0,(float)height);
 	glEnd();
 	glDisable(GL_TEXTURE_2D);
 }

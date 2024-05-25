@@ -56,6 +56,8 @@ char *local_path_to_absolute_vararg(char *format, va_list args);
 FILE *fopen_relative(char *format, ...);
 unsigned char *load_file(int *size, char *format, ...);
 char *load_file_as_cstring(char *format, ...);
+bool is_little_endian();
+char *get_font_name(char *path);
 uint32_t *load_image(bool flip_vertically, int *width, int *height, char *format, ...);
 int16_t *load_audio(int *nFrames, char *format, ...);
 wchar_t *get_keyboard_layout_name();

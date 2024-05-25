@@ -82,7 +82,7 @@ void vertex_list_reset(vertex_list_t *list){
 }
 
 #define CHUNK_WIDTH 16
-int chunk_radius = 2;
+int chunk_radius = 4;
 
 typedef struct {
 	bool remesh;
@@ -840,12 +840,11 @@ struct {
 } keys;
 
 void keydown(int key){
-	if (key == 'F'){
-		exit(0);
-	} else if (key == 'C'){
-		lock_mouse(!is_mouse_locked());
-	}
+	static bool fog = false;
 	switch (key){
+		case 27: exit(0); break;
+		case 'C': lock_mouse(!is_mouse_locked()); break;
+		case 'F': fog ? glDisable(GL_FOG) : glEnable(GL_FOG); fog = !fog; break;
 		case 'W': keys.forward = true; break;
 		case 'A': keys.left = true; break;
 		case 'S': keys.backward = true; break;
@@ -1054,6 +1053,9 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	//DRAW:	
 	glViewport(0,0,width,height);
 
+	glFogi(GL_FOG_MODE,GL_LINEAR);
+	glFogf(GL_FOG_START,CHUNK_WIDTH*0.5f*chunk_radius);
+	glFogf(GL_FOG_END,CHUNK_WIDTH*(float)chunk_radius);
 	glClearColor(0,0,0,1);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 

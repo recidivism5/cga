@@ -1126,7 +1126,7 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	text_set_target_image(textImg,TEXT_IMG_WIDTH,TEXT_IMG_WIDTH);
 	text_set_font_height(12);
 	text_set_color(1,0,1);
-	text_draw(0,TEXT_IMG_WIDTH,0,TEXT_IMG_WIDTH,"tinycraft 0.2\njoj event 9\n");
+	text_draw(0,TEXT_IMG_WIDTH,0,TEXT_IMG_WIDTH,format_string("tinycraft 0.2\nposition: %.2f %.2f %.2f\nchunk: %d %d %d",cam_pos[0],cam_pos[1],cam_pos[2],chunk_pos[0],chunk_pos[1],chunk_pos[2]));
 	for (int i = 0; i < TEXT_IMG_WIDTH*TEXT_IMG_WIDTH; i++){
 		uint8_t *p = (uint8_t *)(textImg + i);
 		if (p[0]){
@@ -1135,8 +1135,8 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 			p[2] = 255;
 		}
 	}
-	//glBindTexture(GL_TEXTURE_2D,textImgTid);
-	//glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,TEXT_IMG_WIDTH,TEXT_IMG_WIDTH,0,GL_RGBA,GL_UNSIGNED_BYTE,textImg);
+	glBindTexture(GL_TEXTURE_2D,textImgTid);
+	glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,TEXT_IMG_WIDTH,TEXT_IMG_WIDTH,0,GL_RGBA,GL_UNSIGNED_BYTE,textImg);
 	glBegin(GL_QUADS);
 	glTexCoord2f(0,0); glVertex2f(0,height-(float)TEXT_IMG_WIDTH);
 	glTexCoord2f(1,0); glVertex2f(TEXT_IMG_WIDTH,height-(float)TEXT_IMG_WIDTH);

@@ -450,6 +450,10 @@ void toggle_fullscreen(){
 	[window toggleFullScreen:nil];
 }
 
+float get_dpi_scale(){
+	return window.screen.backingScaleFactor;
+}
+
 void open_window(int width, int height){
 	swidth = width;
 	sheight = height;

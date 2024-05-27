@@ -61,6 +61,7 @@ uint32_t *load_image(bool flip_vertically, int *width, int *height, char *format
 int16_t *load_audio(int *nFrames, char *format, ...);
 wchar_t *get_keyboard_layout_name();
 void get_key_text(int scancode, wchar_t *buf, int bufcount);
+float get_dpi_scale();
 
 //text:
 void text_set_target_image(uint32_t *pixels, int width, int height);

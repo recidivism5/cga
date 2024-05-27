@@ -82,7 +82,7 @@ void vertex_list_reset(vertex_list_t *list){
 }
 
 #define CHUNK_WIDTH 16
-int chunk_radius = 4;
+int chunk_radius = 2;
 
 typedef struct {
 	bool remesh;
@@ -843,6 +843,7 @@ void keydown(int key){
 	static bool fog = false;
 	switch (key){
 		case 27: exit(0); break;
+		case 'P': toggle_fullscreen(); break;
 		case 'C': lock_mouse(!is_mouse_locked()); break;
 		case 'F': fog ? glDisable(GL_FOG) : glEnable(GL_FOG); fog = !fog; break;
 		case 'W': keys.forward = true; break;
@@ -1013,7 +1014,7 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	if (!init){
 		init = true;
 
-		text_set_font("comic.ttf");
+		//text_set_font("comic.ttf");
 
 		int w,h;
 		uint32_t *p = load_image(true,&w,&h,"textures/blocks.png");
@@ -1125,15 +1126,17 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	text_set_target_image(textImg,TEXT_IMG_WIDTH,TEXT_IMG_WIDTH);
 	text_set_font_height(12);
 	text_set_color(1,0,1);
-	wchar_t tbuf[512];
-	_snwprintf(tbuf,COUNT(tbuf),L"TinyCraft Alpha\nKeyboard: %s\ncam_pos: %.2f %.2f %.2f\nchunk_pos: %d %d %d",get_keyboard_layout_name(),cam_pos[0],cam_pos[1],cam_pos[2],chunk_pos[0],chunk_pos[1],chunk_pos[2]);
-	text_draw(0,TEXT_IMG_WIDTH,0,TEXT_IMG_WIDTH,tbuf);
+	text_draw(0,TEXT_IMG_WIDTH,0,TEXT_IMG_WIDTH,"tinycraft 0.2\njoj event 9\n");
 	for (int i = 0; i < TEXT_IMG_WIDTH*TEXT_IMG_WIDTH; i++){
 		uint8_t *p = (uint8_t *)(textImg + i);
-		p[3] = p[0];
+		if (p[0]){
+			p[3] = p[0];
+			p[0] = 255;
+			p[2] = 255;
+		}
 	}
-	glBindTexture(GL_TEXTURE_2D,textImgTid);
-	glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,TEXT_IMG_WIDTH,TEXT_IMG_WIDTH,0,GL_RGBA,GL_UNSIGNED_BYTE,textImg);
+	//glBindTexture(GL_TEXTURE_2D,textImgTid);
+	//glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,TEXT_IMG_WIDTH,TEXT_IMG_WIDTH,0,GL_RGBA,GL_UNSIGNED_BYTE,textImg);
 	glBegin(GL_QUADS);
 	glTexCoord2f(0,0); glVertex2f(0,height-(float)TEXT_IMG_WIDTH);
 	glTexCoord2f(1,0); glVertex2f(TEXT_IMG_WIDTH,height-(float)TEXT_IMG_WIDTH);

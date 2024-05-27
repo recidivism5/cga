@@ -4,6 +4,7 @@
 #import <OpenGL/OpenGL.h>
 #import <OpenGL/gl.h>
 #import <CoreVideo/CVDisplayLink.h>
+#import <CoreText/CoreText.h>
 
 #include <AudioToolbox/AudioQueue.h>
 #include <AudioToolbox/ExtendedAudioFile.h>
@@ -69,8 +70,19 @@ uint32_t *load_image(bool flip_vertically, int *width, int *height, char *format
 
 	NSImage* img = [[NSImage alloc] initWithContentsOfFile:[NSString stringWithUTF8String:assertPath]];
 	ASSERT_FILE(img);
-	*width = (int)[img size].width;
-	*height = (int)[img size].height;
+	if (img.representations && img.representations.count > 0) {
+        long lastSquare = 0, curSquare;
+        NSImageRep *imageRep;
+        for (imageRep in img.representations) {
+            curSquare = imageRep.pixelsWide * imageRep.pixelsHigh;
+            if (curSquare > lastSquare) {
+                img.size = NSMakeSize(imageRep.pixelsWide, imageRep.pixelsHigh);
+                lastSquare = curSquare;
+            }
+        }
+    }
+	*width = (int)img.size.width;
+	*height = (int)img.size.height;
 	uint32_t *pixels = malloc((*width)*(*height)*sizeof(*pixels));
 	ASSERT_FILE(pixels);
 
@@ -167,6 +179,65 @@ int16_t *load_audio(int *nFrames, char *format, ...){
 	va_end(args);
 
 	return frames;
+}
+struct {
+	uint32_t *pixels;
+	int width, height;
+	float r,g,b;
+	int fontHeight;
+} cgImg = {.fontHeight = 12};
+void text_set_target_image(uint32_t *pixels, int width, int height){
+	cgImg.pixels = pixels;
+	cgImg.width = width;
+	cgImg.height = height;
+}
+void text_set_font(char *ttfPathFormat, ...);
+void text_set_font_height(int height){
+	cgImg.fontHeight = height;
+}
+void text_set_color(float r, float g, float b){
+	cgImg.r = r;
+	cgImg.g = g;
+	cgImg.b = b;
+}
+void text_draw(int left, int right, int bottom, int top, char *str){
+	CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceGenericRGB);
+    CGContextRef ctx = CGBitmapContextCreate(
+		cgImg.pixels,
+		cgImg.width,
+		cgImg.height,
+		8,
+		(cgImg.width)*sizeof(*cgImg.pixels),
+		colorSpace,
+		kCGImageAlphaPremultipliedLast
+	);
+	CGContextSetInterpolationQuality(ctx,kCGInterpolationNone);
+	
+	CTFontRef font = CTFontCreateWithName(CFSTR("Comic Sans MS"), (float)cgImg.fontHeight, nil);
+	NSDictionary* attributes = [NSDictionary dictionaryWithObjectsAndKeys:
+                            (id)font, NSFontAttributeName,
+                            [NSColor colorWithCalibratedRed:cgImg.r green:cgImg.g blue:cgImg.b alpha:1.0f], NSForegroundColorAttributeName,
+                            nil];
+	NSAttributedString* as = [[NSAttributedString alloc] initWithString:[NSString stringWithUTF8String:str] attributes:attributes];
+	CFRelease(font);
+	CTFramesetterRef framesetter = CTFramesetterCreateWithAttributedString((CFAttributedStringRef)as);
+	CGRect rect = CGRectMake(left, bottom, right-left, top-bottom);
+	CGPathRef path = CGPathCreateWithRect(rect, NULL);
+	CTFrameRef frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0), path, NULL);
+	//CGContextSetRGBFillColor(ctx, 1.0, 1.0, 1.0, 1.0);
+	//CGContextFillRect(ctx, CGRectMake(0.0, 0.0, cgImg.width, cgImg.height));
+	CGContextSetTextMatrix(ctx, CGAffineTransformIdentity);
+	CGContextTranslateCTM(ctx, 0, cgImg.height);
+	CGContextScaleCTM(ctx, 1.0, -1.0);
+	//CGContextSetTextPosition(ctx, 0, -14);
+	CTFrameDraw(frame,ctx);
+
+	CFRelease(frame);
+	CFRelease(framesetter);
+	CGPathRelease(path);
+
+	CGContextRelease(ctx);
+    CGColorSpaceRelease(colorSpace);
 }
 
 #if defined(MAC_OS_X_VERSION_10_12) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_12
@@ -316,9 +387,11 @@ CVReturn displayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp *in
 
 static int swidth, sheight;
 
+NSWindow* window;
+MyOpenGLView* glView;
+
 @interface AppDelegate : NSObject <NSApplicationDelegate> {
-   NSWindow* window;
-   MyOpenGLView* glView;
+   
 }
 @end
 @implementation AppDelegate
@@ -334,7 +407,7 @@ static int swidth, sheight;
 	  styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable|NSWindowStyleMaskResizable
 	  backing:NSBackingStoreBuffered
 	  defer:NO];
-   [window setTitle:@"OpenGL Window"];
+   [window setTitle:@"tiny3d"];
    [window setAcceptsMouseMovedEvents:YES];
 
    // Create the OpenGL view
@@ -372,6 +445,10 @@ static int swidth, sheight;
    return YES;
 }
 @end
+
+void toggle_fullscreen(){
+	[window toggleFullScreen:nil];
+}
 
 void open_window(int width, int height){
 	swidth = width;

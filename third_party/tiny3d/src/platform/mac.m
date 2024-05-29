@@ -317,6 +317,14 @@ void lock_mouse(bool locked){
 	return YES;
 }
 
+- (void)magnifyWithEvent:(NSEvent *)event {
+	zoom([event magnification]);
+}
+ 
+- (void)rotateWithEvent:(NSEvent *)event {
+	rotate([event rotation]);
+}
+
 - (void)mouseMoved:(NSEvent*) event {
 	if (mouse_is_locked){
 		mousemove([event deltaX],[event deltaY]);
@@ -332,8 +340,7 @@ void lock_mouse(bool locked){
 }
 
 - (void)scrollWheel: (NSEvent*) event  {
-	NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
-	NSLog(@"Mouse wheel at: %lf, %lf. Delta: %lf", point.x, point.y, [event deltaY]);
+	scroll([event deltaX],[event deltaY]);
 }
 
 - (void) mouseDown: (NSEvent*) event {

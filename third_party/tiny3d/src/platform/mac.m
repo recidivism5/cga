@@ -200,7 +200,7 @@ void text_set_color(float r, float g, float b){
 	cgImg.g = g;
 	cgImg.b = b;
 }
-void text_draw(int left, int right, int bottom, int top, float angle, char *str){
+void text_draw(int left, int right, int bottom, int top, char *str){
 	CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceGenericRGB);
     CGContextRef ctx = CGBitmapContextCreate(
 		cgImg.pixels,
@@ -227,10 +227,8 @@ void text_draw(int left, int right, int bottom, int top, float angle, char *str)
 	//CGContextSetRGBFillColor(ctx, 1.0, 1.0, 1.0, 1.0);
 	//CGContextFillRect(ctx, CGRectMake(0.0, 0.0, cgImg.width, cgImg.height));
 	CGContextSetTextMatrix(ctx, CGAffineTransformIdentity);
-	CGContextRotateCTM(ctx, angle);
 	CGContextTranslateCTM(ctx, 0, cgImg.height);
 	CGContextScaleCTM(ctx, 1.0, -1.0);
-	
 	//CGContextSetTextPosition(ctx, 0, -14);
 	CTFrameDraw(frame,ctx);
 
@@ -317,14 +315,6 @@ void lock_mouse(bool locked){
 	return YES;
 }
 
-- (void)magnifyWithEvent:(NSEvent *)event {
-	zoom([event magnification]);
-}
- 
-- (void)rotateWithEvent:(NSEvent *)event {
-	rotate([event rotation]);
-}
-
 - (void)mouseMoved:(NSEvent*) event {
 	if (mouse_is_locked){
 		mousemove([event deltaX],[event deltaY]);
@@ -340,7 +330,8 @@ void lock_mouse(bool locked){
 }
 
 - (void)scrollWheel: (NSEvent*) event  {
-	scroll([event deltaX],[event deltaY]);
+	NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+	NSLog(@"Mouse wheel at: %lf, %lf. Delta: %lf", point.x, point.y, [event deltaY]);
 }
 
 - (void) mouseDown: (NSEvent*) event {

@@ -18,9 +18,6 @@
 #define TINY3D_SAMPLE_RATE 44100
 #define TINY3D_AUDIO_BUFSZ 8192
 
-#define KEY_MOUSE_LEFT 128
-#define KEY_MOUSE_RIGHT 129
-
 #if __APPLE__
 	#include <OpenGL/OpenGL.h>
 	#include <OpenGL/gl.h>
@@ -38,15 +35,15 @@
 #endif
 void open_window(int width, int height); //width = 0: fullscreen
 void toggle_fullscreen();
+//define this:
+extern void update(double time, double deltaTime, int width, int height, int nAudioFrames, int16_t *audioSamples);
 
 //define these:
-extern void update(double time, double deltaTime, int width, int height, int nAudioFrames, int16_t *audioSamples);
+#define KEY_MOUSE_LEFT 128
+#define KEY_MOUSE_RIGHT 129
 extern void keydown(int key);
 extern void keyup(int key);
 extern void mousemove(int x, int y);
-extern void scroll(float deltaX, float deltaY);
-extern void zoom(float zoomDelta);
-extern void rotate(float angleDelta);
 
 bool is_mouse_locked(void);
 void lock_mouse(bool locked);
@@ -67,11 +64,12 @@ void get_key_text(int scancode, wchar_t *buf, int bufcount);
 float get_dpi_scale();
 
 //text:
+void get_font_name(char *path, char *out, int outCount);
 void text_set_target_image(uint32_t *pixels, int width, int height);
 void text_set_font(char *ttfPathFormat, ...);
 void text_set_font_height(int height);
 void text_set_color(float r, float g, float b);
-void text_draw(int left, int right, int bottom, int top, float angle, char *str);
+void text_draw(int left, int right, int bottom, int top, char *str);
 
 #define COUNT(arr) (sizeof(arr)/sizeof(*arr))
 #define LERP(a,b,t) ((a) + (t)*((b)-(a)))

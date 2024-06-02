@@ -40,10 +40,14 @@ typedef struct {
 	ivec3 min,max;
 } immbb_t;
 
-#define WORLD_WIDTH 32
-uint8_t world[WORLD_WIDTH*WORLD_WIDTH*WORLD_WIDTH];
+typedef struct {
+	uint8_t shape, color;
+} block_t;
 
-uint8_t *get_block(int x, int y, int z){
+#define WORLD_WIDTH 32
+block_t world[WORLD_WIDTH*WORLD_WIDTH*WORLD_WIDTH];
+
+block_t *get_block(int x, int y, int z){
 	if (x >= 0 && x < WORLD_WIDTH &&
 		y >= 0 && y < WORLD_WIDTH &&
 		z >= 0 && z < WORLD_WIDTH){
@@ -121,11 +125,11 @@ void update_entity(entity_t *e){
 		im.max[i] = (int)floorf(em.max[i]);
 	}
 
-	/*for (int y = im.min[1]; y <= im.max[1]; y++){
+	for (int y = im.min[1]; y <= im.max[1]; y++){
 		for (int z = im.min[2]; z <= im.max[2]; z++){
 			for (int x = im.min[0]; x <= im.max[0]; x++){
 				block_t *b = get_block(x,y,z);
-				if (b && b->id &&
+				if (b && b->shape &&
 					m.min[0] < (x+1) && m.max[0] > x &&
 					m.min[2] < (z+1) && m.max[2] > z){
 					if (d[1] < 0 && m.min[1] >= (y+1)){
@@ -150,7 +154,7 @@ void update_entity(entity_t *e){
 		for (int z = im.min[2]; z <= im.max[2]; z++){
 			for (int x = im.min[0]; x <= im.max[0]; x++){
 				block_t *b = get_block(x,y,z);
-				if (b && b->id &&
+				if (b && b->shape &&
 					m.min[1] < (y+1) && m.max[1] > y &&
 					m.min[2] < (z+1) && m.max[2] > z){
 					if (d[0] < 0 && m.min[0] >= (x+1)){
@@ -175,7 +179,7 @@ void update_entity(entity_t *e){
 		for (int z = im.min[2]; z <= im.max[2]; z++){
 			for (int x = im.min[0]; x <= im.max[0]; x++){
 				block_t *b = get_block(x,y,z);
-				if (b && b->id &&
+				if (b && b->shape &&
 					m.min[1] < (y+1) && m.max[1] > y &&
 					m.min[0] < (x+1) && m.max[0] > x){
 					if (d[2] < 0 && m.min[2] >= (z+1)){
@@ -194,7 +198,7 @@ void update_entity(entity_t *e){
 		}
 	}
 	m.min[2] += d[2];
-	m.max[2] += d[2];*/
+	m.max[2] += d[2];
 
 	get_mmbb_center(&m,e->current_position);
 
@@ -214,7 +218,7 @@ void update_entity(entity_t *e){
 	}
 }
 
-/*typedef struct {
+typedef struct {
 	block_t *block;
 	ivec3 block_pos;
 	ivec3 face_normal;
@@ -237,7 +241,7 @@ void cast_ray_into_blocks(vec3 origin, vec3 ray, block_raycast_result_t *result)
 	int index = 0;
 	while (result->t <= 1.0f){
 		result->block = get_block(result->block_pos[0],result->block_pos[1],result->block_pos[2]);
-		if (result->block && result->block->id){
+		if (result->block && result->block->shape){
 			for (int i = 0; i < 3; i++){
 				result->face_normal[i] = 0;
 			}
@@ -260,7 +264,7 @@ void cast_ray_into_blocks(vec3 origin, vec3 ray, block_raycast_result_t *result)
 		da[index] = fabsf(1.0f / ray[index]);
 	}
 	result->block = 0;
-}*/
+}
 
 void get_player_head_pos(vec3 out){
 	get_entity_interpolated_position(&player,out);
@@ -347,9 +351,7 @@ extern void scroll(float deltaX, float deltaY){
 extern void zoom(float zoomDelta){
 
 }
-float textAngle;
 extern void rotate(float angleDelta){
-	textAngle += angleDelta*0.5f;
 }
 
 void tick(){
@@ -395,6 +397,23 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	if (!init){
 		init = true;
 
+		for (int y = 0; y < WORLD_WIDTH; y++){
+			for (int z = 0; z < WORLD_WIDTH; z++){
+				for (int x = 0; x < WORLD_WIDTH; x++){
+					block_t *b = get_block(x,y,z);
+					if (
+						x > 0 && x < (WORLD_WIDTH-1) &&
+						y > 0 && y < (WORLD_WIDTH-1) &&
+						z > 0 && z < (WORLD_WIDTH-1)){
+						b->shape = 0;
+					} else {
+						b->shape = 1;
+						b->color = rand() % COUNT(cga_colors);
+					}
+				}
+			}
+		}
+
 		lock_mouse(true);
 
 		entity_set_position(&player,8,8,8);
@@ -407,25 +426,77 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	}
 	interpolant = accumulated_time / SEC_PER_TICK;
 
-	vec3 cam_pos;
-	get_player_head_pos(cam_pos);
-
 	//DRAW:	
 	glViewport(0,0,width,height);
 
-	glClearColor(0,0,0,1);
+	glClearColor(1,0,0,1);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
-	glEnable(GL_BLEND);
+	//glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+
+	vec3 cam;
+	get_player_head_pos(cam);
+	float fov = 90.0f;
+	float aspect = (float)width/height;
+	float cam_h = 2.0f * tanf(fov * 0.5f * (float)M_PI / 180);
+	float cam_w = cam_h * aspect;
+	vec3 forward = {0,0,-1};
+	vec3_rotate_deg(forward,(vec3){1,0,0},-player.head_rotation[0],forward);
+	vec3_rotate_deg(forward,(vec3){0,1,0},-player.head_rotation[1],forward);
+	vec3 right;
+	vec3_cross(forward,(vec3){0,1,0},right);
+	vec3_normalize(right,right);
+	vec3 up;
+	vec3_cross(right,forward,up);
+	for (int y = 0; y < SCREEN_HEIGHT; y++){
+		for (int x = 0; x < SCREEN_WIDTH; x++){
+			float cx = ((2 * (x + 0.5f) / SCREEN_WIDTH) - 1) * cam_w;
+			float cy = -(1 - (2 * (y + 0.5f) / SCREEN_HEIGHT)) * cam_h;
+			vec3 dir = {0,0,0};
+			vec3 temp;
+			vec3_scale(right,cx,dir);
+			vec3_scale(up,cy,temp);
+			vec3_add(dir,temp,dir);
+			vec3_add(dir,forward,dir);
+			vec3_scale(dir,64.0f,dir);
+			block_raycast_result_t brr;
+			cast_ray_into_blocks(cam,dir,&brr);
+			if (brr.block){
+				screen[y*SCREEN_WIDTH+x] = cga_colors[brr.block->color];
+			}
+		}
+	}
+
+	static GLuint texture = 0;
+	if (!texture){
+		glGenTextures(1,&texture);
+		glBindTexture(GL_TEXTURE_2D,texture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	}
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SCREEN_WIDTH, SCREEN_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, screen);
+	int scale = 1;
+	while (SCREEN_WIDTH*scale <= width && SCREEN_HEIGHT*scale <= height){
+		scale++;
+	}
+	scale--;
+	int scaledWidth = scale * SCREEN_WIDTH;
+	int scaledHeight = scale * SCREEN_HEIGHT;
+	int x = width/2-scaledWidth/2;
+	int y = height/2-scaledHeight/2;
+	glViewport(x,y,scaledWidth,scaledHeight);
+	glEnable(GL_TEXTURE_2D);
+	glBegin(GL_QUADS);
+	glTexCoord2f(0,0); glVertex2f(-1,-1);
+	glTexCoord2f(1,0); glVertex2f(1,-1);
+	glTexCoord2f(1,1); glVertex2f(1,1);
+	glTexCoord2f(0,1); glVertex2f(-1,1);
+	glEnd();
 }
 
 int main(int argc, char **argv){
-	init_cga_colors();
-	for (int i = 0; i < 16; i++){
-		printf("%02x %02x %02x vs %06x\n",cga_colors[i].r,cga_colors[i].g,cga_colors[i].b,cga_colors_check[i]);
-	}
     open_window(640,480);
 }

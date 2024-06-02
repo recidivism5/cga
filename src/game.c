@@ -329,13 +329,13 @@ void keyup(int key){
 
 void mousemove(int x, int y){
 	if (is_mouse_locked()){
-		player.head_rotation[0] += y*mouse_sensitivity;
+		player.head_rotation[0] -= y*mouse_sensitivity;
 		if (player.head_rotation[0] < -90.0){
 			player.head_rotation[0] = -90.0;
 		} else if (player.head_rotation[0] > 90.0){
 			player.head_rotation[0] = 90.0;
 		}
-		player.head_rotation[1] += x*mouse_sensitivity;
+		player.head_rotation[1] -= x*mouse_sensitivity;
 		while (player.head_rotation[1] > 360.0){
 			player.head_rotation[1] -= 360.0;
 		}
@@ -378,7 +378,7 @@ void tick(){
 	if (move_dir[0] || move_dir[1]){
 		vec3_normalize(move_vec,move_vec);
 		vec3_scale(move_vec,0.25f,move_vec);
-		vec3_rotate_deg(move_vec,(vec3){0,1,0},-player.head_rotation[1],move_vec);
+		vec3_rotate_deg(move_vec,(vec3){0,1,0},player.head_rotation[1],move_vec);
 	}
 	player.velocity[0] = LERP(player.velocity[0],move_vec[0],0.3f);
 	player.velocity[2] = LERP(player.velocity[2],move_vec[2],0.3f);
@@ -444,8 +444,8 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	float cam_h = 2.0f * tanf(fov * 0.5f * (float)M_PI / 180);
 	float cam_w = cam_h * aspect;
 	vec3 forward = {0,0,-1};
-	vec3_rotate_deg(forward,(vec3){1,0,0},-player.head_rotation[0],forward);
-	vec3_rotate_deg(forward,(vec3){0,1,0},-player.head_rotation[1],forward);
+	vec3_rotate_deg(forward,(vec3){1,0,0},player.head_rotation[0],forward);
+	vec3_rotate_deg(forward,(vec3){0,1,0},player.head_rotation[1],forward);
 	vec3 right;
 	vec3_cross(forward,(vec3){0,1,0},right);
 	vec3_normalize(right,right);

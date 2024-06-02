@@ -454,7 +454,7 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	for (int y = 0; y < SCREEN_HEIGHT; y++){
 		for (int x = 0; x < SCREEN_WIDTH; x++){
 			float cx = ((2 * (x + 0.5f) / SCREEN_WIDTH) - 1) * cam_w;
-			float cy = -(1 - (2 * (y + 0.5f) / SCREEN_HEIGHT)) * cam_h;
+			float cy = ((2 * (y + 0.5f) / SCREEN_HEIGHT) - 1) * cam_h;
 			vec3 dir = {0,0,0};
 			vec3 temp;
 			vec3_scale(right,cx,dir);

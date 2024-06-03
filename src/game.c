@@ -266,6 +266,8 @@ void cast_ray_into_blocks(vec3 origin, vec3 ray, block_raycast_result_t *result)
 	result->block = 0;
 }
 
+vec3 light = {8,8,8};
+
 void get_player_head_pos(vec3 out){
 	get_entity_interpolated_position(&player,out);
 	out[1] += 1.62f-0.9f;
@@ -413,6 +415,8 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 				}
 			}
 		}
+		get_block(10,2,10)->shape = 1;
+		get_block(10,2,10)->color = 8;
 
 		lock_mouse(true);
 
@@ -465,7 +469,20 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 			block_raycast_result_t brr;
 			cast_ray_into_blocks(cam,dir,&brr);
 			if (brr.block){
-				screen[y*SCREEN_WIDTH+x] = cga_colors[brr.block->color];
+				vec3 pos;
+				vec3_scale(dir,brr.t,dir);
+				vec3_add(cam,dir,pos);
+				for (int i = 0; i < 3; i++){
+					if (brr.face_normal[i]){
+						pos[i] += brr.face_normal[i] * 0.0001f;
+						break;
+					}
+				}
+				vec3 to_light;
+				vec3_sub(light,pos,to_light);
+				block_raycast_result_t brr2;
+				cast_ray_into_blocks(pos,to_light,&brr2);
+				screen[y*SCREEN_WIDTH+x] = brr2.block ? cga_colors[0] : cga_colors[brr.block->color];
 			}
 		}
 	}

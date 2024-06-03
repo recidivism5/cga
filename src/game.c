@@ -1,4 +1,5 @@
 #include "tiny3d.h"
+#include "thd.h"
 
 double accumulated_time = 0.0;
 double interpolant;
@@ -426,55 +427,14 @@ void tick(){
 uint32_t textImg[TEXT_IMG_WIDTH*TEXT_IMG_WIDTH];
 GLuint textImgTid;
 
-void update(double time, double deltaTime, int width, int height, int nAudioFrames, int16_t *audioSamples){
-	static bool init = false;
-	if (!init){
-		init = true;
+float gwidth,gheight;
 
-		for (int y = 0; y < WORLD_WIDTH; y++){
-			for (int z = 0; z < WORLD_WIDTH; z++){
-				for (int x = 0; x < WORLD_WIDTH; x++){
-					block_t *b = get_block(x,y,z);
-					if (
-						x > 0 && x < (WORLD_WIDTH-1) &&
-						y > 0 && y < (WORLD_WIDTH-1) &&
-						z > 0 && z < (WORLD_WIDTH-1)){
-						*b = 0;
-					} else {
-						*b = 1;
-					}
-				}
-			}
-		}
-		get_block(10,2,10)[0] = 1;
-
-		lock_mouse(true);
-
-		entity_set_position(&player,8,8,8);
-	}
-
-	accumulated_time += deltaTime;
-	while (accumulated_time >= 1.0/20.0){
-		accumulated_time -= 1.0/20.0;
-		tick();
-	}
-	interpolant = accumulated_time / SEC_PER_TICK;
-
-	//DRAW:	
-	glViewport(0,0,width,height);
-
-	glClearColor(1,0,0,1);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_CULL_FACE);
-	//glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-
+void fill(void *data){
+	int offset = data;
 	vec3 eye, ray;
 	get_player_eye_ray(eye,ray);
 	float fov = 90.0f;
-	float aspect = (float)width/height;
+	float aspect = (float)gwidth/gheight;
 	float cam_h = 2.0f * tanf(fov * 0.5f * (float)M_PI / 180);
 	float cam_w = cam_h * aspect;
 	vec3 right;
@@ -482,7 +442,7 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	vec3_normalize(right,right);
 	vec3 up;
 	vec3_cross(right,ray,up);
-	for (int y = 0; y < SCREEN_HEIGHT; y++){
+	for (int y = offset; y < offset+25; y++){
 		for (int x = 0; x < SCREEN_WIDTH; x++){
 			float cx = ((2 * (x + 0.5f) / SCREEN_WIDTH) - 1) * cam_w;
 			float cy = ((2 * (y + 0.5f) / SCREEN_HEIGHT) - 1) * cam_h;
@@ -529,6 +489,63 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 				screen[y*SCREEN_WIDTH+x] = c;
 			}
 		}
+	}
+}
+
+void update(double time, double deltaTime, int width, int height, int nAudioFrames, int16_t *audioSamples){
+	static bool init = false;
+	if (!init){
+		init = true;
+
+		for (int y = 0; y < WORLD_WIDTH; y++){
+			for (int z = 0; z < WORLD_WIDTH; z++){
+				for (int x = 0; x < WORLD_WIDTH; x++){
+					block_t *b = get_block(x,y,z);
+					if (
+						x > 0 && x < (WORLD_WIDTH-1) &&
+						y > 0 && y < (WORLD_WIDTH-1) &&
+						z > 0 && z < (WORLD_WIDTH-1)){
+						*b = 0;
+					} else {
+						*b = 1;
+					}
+				}
+			}
+		}
+		get_block(10,2,10)[0] = 1;
+
+		lock_mouse(true);
+
+		entity_set_position(&player,8,8,8);
+	}
+
+	accumulated_time += deltaTime;
+	while (accumulated_time >= 1.0/20.0){
+		accumulated_time -= 1.0/20.0;
+		tick();
+	}
+	interpolant = accumulated_time / SEC_PER_TICK;
+
+	//DRAW:	
+	glViewport(0,0,width,height);
+
+	glClearColor(1,0,0,1);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_CULL_FACE);
+	//glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+
+	gwidth = width;
+	gheight = height;
+	thd_thread threads[3];
+	for (int i = 0; i < 3; i++){
+		thd_thread_detach(threads+i,fill,25*(i+1));
+	}
+	fill(0);
+	for (int i = 0; i < 3; i++){
+		thd_thread_join(threads+i);
 	}
 
 	static GLuint texture = 0;

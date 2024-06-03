@@ -40,9 +40,7 @@ typedef struct {
 	ivec3 min,max;
 } immbb_t;
 
-typedef struct {
-	uint8_t shape, color;
-} block_t;
+typedef uint8_t block_t;
 
 #define WORLD_WIDTH 32
 block_t world[WORLD_WIDTH*WORLD_WIDTH*WORLD_WIDTH];
@@ -129,7 +127,7 @@ void update_entity(entity_t *e){
 		for (int z = im.min[2]; z <= im.max[2]; z++){
 			for (int x = im.min[0]; x <= im.max[0]; x++){
 				block_t *b = get_block(x,y,z);
-				if (b && b->shape &&
+				if (b && *b &&
 					m.min[0] < (x+1) && m.max[0] > x &&
 					m.min[2] < (z+1) && m.max[2] > z){
 					if (d[1] < 0 && m.min[1] >= (y+1)){
@@ -154,7 +152,7 @@ void update_entity(entity_t *e){
 		for (int z = im.min[2]; z <= im.max[2]; z++){
 			for (int x = im.min[0]; x <= im.max[0]; x++){
 				block_t *b = get_block(x,y,z);
-				if (b && b->shape &&
+				if (b && *b &&
 					m.min[1] < (y+1) && m.max[1] > y &&
 					m.min[2] < (z+1) && m.max[2] > z){
 					if (d[0] < 0 && m.min[0] >= (x+1)){
@@ -179,7 +177,7 @@ void update_entity(entity_t *e){
 		for (int z = im.min[2]; z <= im.max[2]; z++){
 			for (int x = im.min[0]; x <= im.max[0]; x++){
 				block_t *b = get_block(x,y,z);
-				if (b && b->shape &&
+				if (b && *b &&
 					m.min[1] < (y+1) && m.max[1] > y &&
 					m.min[0] < (x+1) && m.max[0] > x){
 					if (d[2] < 0 && m.min[2] >= (z+1)){
@@ -241,7 +239,7 @@ void cast_ray_into_blocks(vec3 origin, vec3 ray, block_raycast_result_t *result)
 	int index = 0;
 	while (result->t <= 1.0f){
 		result->block = get_block(result->block_pos[0],result->block_pos[1],result->block_pos[2]);
-		if (result->block && result->block->shape){
+		if (result->block && result->block[0]){
 			for (int i = 0; i < 3; i++){
 				result->face_normal[i] = 0;
 			}
@@ -266,11 +264,41 @@ void cast_ray_into_blocks(vec3 origin, vec3 ray, block_raycast_result_t *result)
 	result->block = 0;
 }
 
-vec3 light = {8,8,8};
+typedef struct {
+	entity_t entity;
+	color_t color;
+	float range;
+} light_t;
+light_t lights[16];
+int light_count = 0;
 
-void get_player_head_pos(vec3 out){
-	get_entity_interpolated_position(&player,out);
-	out[1] += 1.62f-0.9f;
+void get_player_eye_ray(vec3 eye, vec3 ray){
+	get_entity_interpolated_position(&player,eye);
+	eye[1] += 1.62f-0.9f;
+	ray[0] = 0.0f;
+	ray[1] = 0.0f;
+	ray[2] = -1.0f;
+	vec3_rotate_deg(ray,(vec3){1,0,0},player.head_rotation[0],ray);
+	vec3_rotate_deg(ray,(vec3){0,1,0},player.head_rotation[1],ray);
+}
+
+void shoot_light(){
+	vec3 eye,ray;
+	get_player_eye_ray(eye,ray);
+	light_t *light = lights+light_count;
+	light->color.r = rand()%255;
+	light->color.g = rand()%255;
+	light->color.b = rand()%255;
+	light->range = 8.0f;
+	memset(&light->entity,0,sizeof(light->entity));
+	light->entity.width = 0.25f;
+	light->entity.height = 0.25f;
+	vec3_copy(eye,light->entity.current_position);
+	vec3_scale(ray,3.0f,ray);
+	vec3_add(light->entity.current_position,ray,light->entity.current_position);
+	vec3_copy(light->entity.current_position,light->entity.previous_position);
+	vec3_copy(ray,light->entity.velocity);
+	light_count++;
 }
 
 /*void get_player_target_block(block_raycast_result_t *result){
@@ -311,6 +339,7 @@ void keydown(int key){
 		case 'D': keys.right = true; break;
 		case ' ': keys.jump = true; break;
 		case KEY_MOUSE_LEFT:{
+			shoot_light();
 			break;
 		}
 		case KEY_MOUSE_RIGHT:{
@@ -388,6 +417,9 @@ void tick(){
 		player.velocity[1] = 0.5f;
 	}
 	update_entity(&player);
+	for (int i = 0; i < light_count; i++){
+		update_entity(&lights[i].entity);
+	}
 }
 
 #define TEXT_IMG_WIDTH 512
@@ -407,16 +439,14 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 						x > 0 && x < (WORLD_WIDTH-1) &&
 						y > 0 && y < (WORLD_WIDTH-1) &&
 						z > 0 && z < (WORLD_WIDTH-1)){
-						b->shape = 0;
+						*b = 0;
 					} else {
-						b->shape = 1;
-						b->color = rand() % COUNT(cga_colors);
+						*b = 1;
 					}
 				}
 			}
 		}
-		get_block(10,2,10)->shape = 1;
-		get_block(10,2,10)->color = 8;
+		get_block(10,2,10)[0] = 1;
 
 		lock_mouse(true);
 
@@ -441,20 +471,17 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 	//glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
 
-	vec3 cam;
-	get_player_head_pos(cam);
+	vec3 eye, ray;
+	get_player_eye_ray(eye,ray);
 	float fov = 90.0f;
 	float aspect = (float)width/height;
 	float cam_h = 2.0f * tanf(fov * 0.5f * (float)M_PI / 180);
 	float cam_w = cam_h * aspect;
-	vec3 forward = {0,0,-1};
-	vec3_rotate_deg(forward,(vec3){1,0,0},player.head_rotation[0],forward);
-	vec3_rotate_deg(forward,(vec3){0,1,0},player.head_rotation[1],forward);
 	vec3 right;
-	vec3_cross(forward,(vec3){0,1,0},right);
+	vec3_cross(ray,(vec3){0,1,0},right);
 	vec3_normalize(right,right);
 	vec3 up;
-	vec3_cross(right,forward,up);
+	vec3_cross(right,ray,up);
 	for (int y = 0; y < SCREEN_HEIGHT; y++){
 		for (int x = 0; x < SCREEN_WIDTH; x++){
 			float cx = ((2 * (x + 0.5f) / SCREEN_WIDTH) - 1) * cam_w;
@@ -464,25 +491,42 @@ void update(double time, double deltaTime, int width, int height, int nAudioFram
 			vec3_scale(right,cx,dir);
 			vec3_scale(up,cy,temp);
 			vec3_add(dir,temp,dir);
-			vec3_add(dir,forward,dir);
-			vec3_scale(dir,64.0f,dir);
+			vec3_add(dir,ray,dir);
+			vec3_scale(dir,100.0f,dir);
 			block_raycast_result_t brr;
-			cast_ray_into_blocks(cam,dir,&brr);
+			cast_ray_into_blocks(eye,dir,&brr);
 			if (brr.block){
 				vec3 pos;
 				vec3_scale(dir,brr.t,dir);
-				vec3_add(cam,dir,pos);
+				vec3_add(eye,dir,pos);
 				for (int i = 0; i < 3; i++){
 					if (brr.face_normal[i]){
 						pos[i] += brr.face_normal[i] * 0.0001f;
 						break;
 					}
 				}
-				vec3 to_light;
-				vec3_sub(light,pos,to_light);
-				block_raycast_result_t brr2;
-				cast_ray_into_blocks(pos,to_light,&brr2);
-				screen[y*SCREEN_WIDTH+x] = brr2.block ? cga_colors[0] : cga_colors[brr.block->color];
+				color_t c = {0,0,0,255};
+				for (int i = 0; i < light_count; i++){
+					vec3 light, to_light;
+					get_entity_interpolated_position(&lights[i].entity,light);
+					vec3_sub(light,pos,to_light);
+					block_raycast_result_t brr2;
+					cast_ray_into_blocks(pos,to_light,&brr2);
+					float brightness;
+					if (brr2.block){
+						brightness = 0.0f;
+					} else {
+						float len = vec3_length(to_light)/lights[i].range + 1.0f;
+						brightness = 1.0f / (len * len);
+					}
+					c.r += brightness * lights[i].color.r;
+					c.g += brightness * lights[i].color.g;
+					c.b += brightness * lights[i].color.b;
+					if (c.r > 255) c.r = 255;
+					if (c.g > 255) c.g = 255;
+					if (c.b > 255) c.b = 255;
+				}
+				screen[y*SCREEN_WIDTH+x] = c;
 			}
 		}
 	}
